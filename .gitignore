@@ -26,3 +26,4 @@ dbgfle*
 
 # don't commit test barcode images
 *.png
+witness.json

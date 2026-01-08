@@ -1,8 +1,9 @@
 use std::{collections::HashSet, io::Write, path::PathBuf};
 
 use crate::{
-    BarcodeFormat, BinaryBitmap, DecodeHints, Exceptions, FilteredImageReader,
-    Luma8LuminanceSource, MultiFormatReader, MultiUseMultiFormatReader, RXingResult, Reader,
+    BarcodeFormat, Binarizer, BinaryBitmap, DecodeHints, Exceptions, FilteredImageReader,
+    LuminanceSource, Luma8LuminanceSource, MultiFormatReader, MultiUseMultiFormatReader,
+    RXingResult, Reader, WitnessData,
     common::{BitMatrix, FixedThresholdBinarizer, Result},
     multi::{GenericMultipleBarcodeReader, MultipleBarcodeReader},
 };
@@ -309,4 +310,38 @@ pub fn save_file(file_name: &str, bit_matrix: &BitMatrix) -> Result<()> {
             "could not write to '{file_name}'"
         ))),
     }
+}
+
+/**
+ * Extracts witness data from a BinaryBitmap for zero-knowledge proof generation.
+ *
+ * This function captures the intermediate processing state during barcode decoding:
+ * - The original grayscale luminance values
+ * - The binarized black/white BitMatrix
+ *
+ * # Arguments
+ * * `bitmap` - The BinaryBitmap that has been used for decoding
+ *
+ * # Returns
+ * WitnessData containing the image and binarized data
+ */
+pub fn extract_witness_data<B: Binarizer>(bitmap: &BinaryBitmap<B>) -> Result<WitnessData> {
+    // Get the binarized matrix (this triggers binarization if not already done)
+    let binarized_matrix = bitmap.get_black_matrix().clone();
+
+    // Get the luminance source
+    let source = bitmap.get_binarizer().get_luminance_source();
+
+    // Extract the raw luminance data
+    let width = source.get_width();
+    let height = source.get_height();
+    let luminance_data = source.get_matrix().to_vec();
+
+    // Create and return WitnessData
+    Ok(WitnessData::new(
+        width,
+        height,
+        luminance_data,
+        binarized_matrix,
+    ))
 }

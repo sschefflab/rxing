@@ -59,6 +59,9 @@ pub use rxing_result_metadata::*;
 mod rxing_result;
 pub use rxing_result::*;
 
+mod witness_data;
+pub use witness_data::*;
+
 mod result_point;
 pub use result_point::*;
 

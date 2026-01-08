@@ -51,6 +51,10 @@ enum Commands {
         #[arg(long)]
         raw_bytes: bool,
 
+        /// Save witness data to JSON file (for zero-knowledge proof generation)
+        #[arg(long)]
+        save_witness: Option<String>,
+
         /// Unspecified, application-specific hint.
         #[arg(long)]
         other: Option<String>,
@@ -254,6 +258,7 @@ fn main() -> ExitCode {
             detailed_results_json,
             parsed_results,
             raw_bytes,
+            save_witness,
         } => decode_command(
             &cli.file_name,
             try_harder,
@@ -272,6 +277,7 @@ fn main() -> ExitCode {
             detailed_results_json,
             parsed_results,
             raw_bytes,
+            save_witness,
         ),
         Commands::Encode {
             barcode_type,
@@ -339,6 +345,7 @@ fn decode_command(
     detailed_results_json: &bool,
     parsed_bytes: &bool,
     raw_bytes: &bool,
+    save_witness: &Option<String>,
 ) -> ExitCode {
     let mut hints: rxing::DecodingHintDictionary = HashMap::new();
     if let Some(other) = other {
@@ -456,36 +463,159 @@ fn decode_command(
             }
         }
     } else {
-        let result = if extension == "svg" {
-            rxing::helpers::detect_in_svg_with_hints(file_name, None, &mut hints.into())
+        // If witness data is requested, we need manual decoding to access the BinaryBitmap
+        if save_witness.is_some() {
+            decode_with_witness_extraction(
+                file_name,
+                &extension,
+                &mut hints.into(),
+                save_witness.as_ref().unwrap(),
+                detailed_result,
+                detailed_results_json,
+                raw_bytes,
+                parsed_bytes,
+            )
         } else {
-            rxing::helpers::detect_in_file_with_hints(file_name, None, &mut hints.into())
+            let result = if extension == "svg" {
+                rxing::helpers::detect_in_svg_with_hints(file_name, None, &mut hints.into())
+            } else {
+                rxing::helpers::detect_in_file_with_hints(file_name, None, &mut hints.into())
+            };
+            match result {
+                Ok(result) => {
+                    // For JSON (and other machine readable format) don't print anything else to the
+                    // stdout.
+                    let prefix = if !*detailed_results_json {
+                        "Detection result: \n"
+                    } else {
+                        ""
+                    };
+                    println!(
+                        "{prefix}{}",
+                        print_result(
+                            &result,
+                            *detailed_result,
+                            *detailed_results_json,
+                            *raw_bytes,
+                            *parsed_bytes
+                        )
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(search_err) => {
+                    println!("Error while attempting to locate barcode in '{file_name}': {search_err}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+    }
+}
+
+/// Decodes a barcode and extracts witness data for ZK proof generation
+fn decode_with_witness_extraction(
+    file_name: &str,
+    extension: &str,
+    hints: &mut rxing::DecodeHints,
+    witness_path: &str,
+    detailed_result: &bool,
+    detailed_results_json: &bool,
+    raw_bytes: &bool,
+    parsed_bytes: &bool,
+) -> ExitCode {
+    use rxing::{
+        BinaryBitmap, MultiFormatReader, Reader,
+        common::{FixedThresholdBinarizer, Result},
+    };
+
+    // Helper to decode from a BinaryBitmap and extract witness data
+    fn decode_and_extract<B: rxing::Binarizer>(
+        bitmap: &mut BinaryBitmap<B>,
+        hints: &mut rxing::DecodeHints,
+    ) -> Result<(rxing::RXingResult, rxing::WitnessData)> {
+        let mut reader = MultiFormatReader::default();
+        let result = reader.decode_with_hints(bitmap, hints)?;
+        let witness = rxing::helpers::extract_witness_data(bitmap)?;
+        Ok((result, witness))
+    }
+
+    let decode_result: Result<(rxing::RXingResult, rxing::WitnessData)> = if extension == "svg" {
+        use std::{fs::File, io::Read};
+        use rxing::{SVGLuminanceSource, common::FixedThresholdBinarizer};
+
+        let mut file = match File::open(file_name) {
+            Ok(f) => f,
+            Err(e) => {
+                println!("Error opening file '{}': {}", file_name, e);
+                return ExitCode::FAILURE;
+            }
         };
-        match result {
-            Ok(result) => {
-                // For JSON (and other machine readable format) don't print anything else to the
-                // stdout.
-                let prefix = if !*detailed_results_json {
-                    "Detection result: \n"
-                } else {
-                    ""
-                };
-                println!(
-                    "{prefix}{}",
-                    print_result(
-                        &result,
-                        *detailed_result,
-                        *detailed_results_json,
-                        *raw_bytes,
-                        *parsed_bytes
-                    )
-                );
-                ExitCode::SUCCESS
+
+        let mut svg_data = Vec::new();
+        if let Err(e) = file.read_to_end(&mut svg_data) {
+            println!("Error reading file '{}': {}", file_name, e);
+            return ExitCode::FAILURE;
+        }
+
+        let source = match SVGLuminanceSource::new(&svg_data) {
+            Ok(s) => s,
+            Err(e) => {
+                println!("Error creating SVG luminance source: {:?}", e);
+                return ExitCode::FAILURE;
             }
-            Err(search_err) => {
-                println!("Error while attempting to locate barcode in '{file_name}': {search_err}");
-                ExitCode::FAILURE
+        };
+
+        let binarizer = FixedThresholdBinarizer::new(source);
+        let mut bitmap = BinaryBitmap::new(binarizer);
+
+        decode_and_extract(&mut bitmap, hints)
+    } else {
+        use rxing::BufferedImageLuminanceSource;
+
+        let img = match image::open(file_name) {
+            Ok(i) => i,
+            Err(e) => {
+                println!("Error opening image '{}': {}", file_name, e);
+                return ExitCode::FAILURE;
             }
+        };
+
+        let source = BufferedImageLuminanceSource::new(img);
+        let binarizer = FixedThresholdBinarizer::new(source);
+        let mut bitmap = BinaryBitmap::new(binarizer);
+
+        decode_and_extract(&mut bitmap, hints)
+    };
+
+    match decode_result {
+        Ok((result, witness)) => {
+            // Save witness data to JSON
+            if let Err(e) = witness.save_to_json(witness_path) {
+                println!("Error saving witness data to '{}': {}", witness_path, e);
+                return ExitCode::FAILURE;
+            }
+            println!("Witness data saved to '{}'", witness_path);
+
+            // Print the decode result
+            let prefix = if !*detailed_results_json {
+                "Detection result: \n"
+            } else {
+                ""
+            };
+            println!(
+                "{prefix}{}",
+                print_result(
+                    &result,
+                    *detailed_result,
+                    *detailed_results_json,
+                    *raw_bytes,
+                    *parsed_bytes
+                )
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            println!("Error decoding barcode from '{}': {:?}", file_name, e);
+            ExitCode::FAILURE
         }
     }
 }
