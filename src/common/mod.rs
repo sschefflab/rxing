@@ -105,6 +105,9 @@ pub use global_histogram_binarizer::*;
 mod hybrid_binarizer;
 pub use hybrid_binarizer::*;
 
+mod fixed_threshold_binarizer;
+pub use fixed_threshold_binarizer::*;
+
 mod eci;
 pub use eci::*;
 
