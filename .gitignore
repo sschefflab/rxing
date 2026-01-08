@@ -23,3 +23,6 @@ dbgfle*
 
 .vscode
 .vscode/*
+
+# don't commit test barcode images
+*.png

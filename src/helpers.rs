@@ -1,10 +1,10 @@
 use std::{collections::HashSet, io::Write, path::PathBuf};
 
 use crate::{
-    common::{BitMatrix, HybridBinarizer, Result},
-    multi::{GenericMultipleBarcodeReader, MultipleBarcodeReader},
     BarcodeFormat, BinaryBitmap, DecodeHints, Exceptions, FilteredImageReader,
     Luma8LuminanceSource, MultiFormatReader, MultiUseMultiFormatReader, RXingResult, Reader,
+    common::{BitMatrix, FixedThresholdBinarizer, Result},
+    multi::{GenericMultipleBarcodeReader, MultipleBarcodeReader},
 };
 
 #[cfg(feature = "image")]
@@ -48,7 +48,9 @@ pub fn detect_in_svg_with_hints(
     hints.TryHarder = hints.TryHarder.or(Some(true));
 
     multi_format_reader.decode_with_hints(
-        &mut BinaryBitmap::new(HybridBinarizer::new(SVGLuminanceSource::new(&svg_data)?)),
+        &mut BinaryBitmap::new(FixedThresholdBinarizer::new(SVGLuminanceSource::new(
+            &svg_data,
+        )?)),
         hints,
     )
 }
@@ -87,7 +89,9 @@ pub fn detect_multiple_in_svg_with_hints(
     hints.TryHarder = hints.TryHarder.or(Some(true));
 
     scanner.decode_multiple_with_hints(
-        &mut BinaryBitmap::new(HybridBinarizer::new(SVGLuminanceSource::new(&svg_data)?)),
+        &mut BinaryBitmap::new(FixedThresholdBinarizer::new(SVGLuminanceSource::new(
+            &svg_data,
+        )?)),
         hints,
     )
 }
@@ -117,7 +121,9 @@ pub fn detect_in_file_with_hints(
     hints.TryHarder = hints.TryHarder.or(Some(true));
 
     multi_format_reader.decode_with_hints(
-        &mut BinaryBitmap::new(HybridBinarizer::new(BufferedImageLuminanceSource::new(img))),
+        &mut BinaryBitmap::new(FixedThresholdBinarizer::new(
+            BufferedImageLuminanceSource::new(img),
+        )),
         hints,
     )
 }
@@ -140,7 +146,9 @@ pub fn detect_multiple_in_file_with_hints(
     hints.TryHarder = hints.TryHarder.or(Some(true));
 
     scanner.decode_multiple_with_hints(
-        &mut BinaryBitmap::new(HybridBinarizer::new(BufferedImageLuminanceSource::new(img))),
+        &mut BinaryBitmap::new(FixedThresholdBinarizer::new(
+            BufferedImageLuminanceSource::new(img),
+        )),
         hints,
     )
 }
@@ -176,7 +184,7 @@ pub fn detect_in_luma_with_hints(
     hints.TryHarder = hints.TryHarder.or(Some(true));
 
     multi_format_reader.decode_with_hints(
-        &mut BinaryBitmap::new(HybridBinarizer::new(Luma8LuminanceSource::new(
+        &mut BinaryBitmap::new(FixedThresholdBinarizer::new(Luma8LuminanceSource::new(
             luma, width, height,
         ))),
         hints,
@@ -214,7 +222,7 @@ pub fn detect_in_luma_filtered_with_hints(
     hints.TryHarder = hints.TryHarder.or(Some(true));
 
     multi_format_reader.decode_with_hints(
-        &mut BinaryBitmap::new(HybridBinarizer::new(Luma8LuminanceSource::new(
+        &mut BinaryBitmap::new(FixedThresholdBinarizer::new(Luma8LuminanceSource::new(
             luma, width, height,
         ))),
         hints,
@@ -237,7 +245,7 @@ pub fn detect_multiple_in_luma_with_hints(
     hints.TryHarder = hints.TryHarder.or(Some(true));
 
     scanner.decode_multiple_with_hints(
-        &mut BinaryBitmap::new(HybridBinarizer::new(Luma8LuminanceSource::new(
+        &mut BinaryBitmap::new(FixedThresholdBinarizer::new(Luma8LuminanceSource::new(
             luma, width, height,
         ))),
         hints,
