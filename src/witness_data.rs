@@ -65,6 +65,9 @@ pub struct WitnessData {
 
     pub row_indicators: Option<RowIndicatorVars>,
 
+    pub all_left_row_indicators: Option<Vec<u32>>,
+
+
     /// Codewords before error correction
     pub codewords: Option<Vec<u32>>,
 
@@ -105,6 +108,8 @@ pub struct FinalizedWitnessData {
 
     pub row_indicators: RowIndicatorVars,
 
+    pub all_left_row_indicators: Vec<u32>,
+
     /// Codewords before error correction
     pub codewords: Vec<u32>,
 
@@ -125,6 +130,7 @@ impl FinalizedWitnessData {
         column_count: u32,
         ec_level: u32,
         row_indicators: RowIndicatorVars,
+        all_left_row_indicators: Vec<u32>,
         codewords: Vec<u32>,
         corrected_codewords: Vec<u32>,
         polynomial_results: Vec<PolynomialResult>,
@@ -156,6 +162,7 @@ impl FinalizedWitnessData {
             column_count,
             ec_level,
             row_indicators,
+            all_left_row_indicators,
             codewords,
             corrected_codewords,
             polynomial_results,
@@ -181,6 +188,8 @@ impl FinalizedWitnessData {
         let row_indicators =
             Option::ok_or(witness_data.row_indicators.clone(), "no row indicator data")?;
 
+        let all_left_row_indicators = Option::ok_or(witness_data.all_left_row_indicators.clone(), "no all left row indicators data")?;
+
         let codewords = Option::ok_or(witness_data.codewords.clone(), "no codewords data")?;
 
         let corrected_codewords = Option::ok_or(
@@ -202,6 +211,7 @@ impl FinalizedWitnessData {
             column_count,
             ec_level,
             row_indicators,
+            all_left_row_indicators,
             codewords,
             corrected_codewords,
             polynomial_results,
@@ -275,6 +285,7 @@ impl WitnessData {
             column_count: None,
             ec_level: None,
             row_indicators: None,
+            all_left_row_indicators: None,
             codewords: None,
             corrected_codewords: None,
             polynomial_results: None,
@@ -321,6 +332,10 @@ impl WitnessData {
 
     pub fn set_row_indicators(&mut self, row_indicators: RowIndicatorVars) {
         self.row_indicators = Some(row_indicators);
+    }
+
+    pub fn set_all_left_row_indicators(&mut self, all_left_row_indicators: Vec<u32>) {
+        self.all_left_row_indicators = Some(all_left_row_indicators);
     }
 
     pub fn set_codewords(&mut self, codewords: Vec<u32>, corrected_codewords: Vec<u32>) {
@@ -438,5 +453,27 @@ mod tests {
     fn test_witness_data_size_mismatch() {
         let image = vec![vec![1, 2, 3]]; // Wrong number of rows
         let _witness = WitnessData::new(3, 4, image);
+    }
+
+    #[test]
+    fn test_witness_finalization_flow() {
+        let image = vec![vec![255; 2]; 2];
+        let mut witness = WitnessData::new(2, 2, image);
+        
+        // Test that finalization fails when fields are missing
+        assert!(witness.finalize().is_err());
+
+        // Populate required fields
+        witness.set_binarized_image(BitMatrix::new(2, 2).unwrap());
+        witness.set_barcode_metadata(30, 10, 2);
+        witness.set_row_indicators(RowIndicatorVars { 
+            l0: 1, l3: 1, l6: 1, q0: 1, q3: 1, q6: 1, r0: 1, r3: 1 
+        });
+        witness.set_codewords(vec![1, 2], vec![1, 2]);
+        witness.set_polynomial_results(vec![PolynomialResult { result: 0, result_quotient: 0 }]);
+
+        // Verify successful finalization
+        let finalized = witness.finalize().expect("Should finalize with all fields set");
+        assert_eq!(finalized.row_count, 30);
     }
 }

@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+use encoding::all;
+
 use crate::pdf417::pdf_417_common;
 use crate::{RowIndicatorVars, WitnessData};
 
@@ -158,7 +160,11 @@ impl DetectionRXingResultRowIndicatorColumn for DetectionRXingResultColumn {
         let mut barcodeRowCountLowerPart = BarcodeValue::new();
         let mut barcodeECLevel = BarcodeValue::new();
 
+        // Keeps track of all left row indicator values to store
+        let mut all_indicators = Vec::new();
+
         // Track row indicator values for witness data (only for left indicators)
+        // These track the first 3 rows
         let mut have_cluster_0 = false;
         let mut have_cluster_1 = false;
         let mut have_cluster_2 = false;
@@ -181,11 +187,13 @@ impl DetectionRXingResultRowIndicatorColumn for DetectionRXingResultColumn {
             let mut codewordRowNumber = codeword.getRowNumber();
             if !isLeft {
                 codewordRowNumber += 2;
+            } else {
+                all_indicators.push(fullValue);
             }
             match codewordRowNumber % 3 {
                 0 => {
                     barcodeRowCountUpperPart.setValue(rowIndicatorValue * 3 + 1);
-                    if isLeft && !have_cluster_0 {
+                    if isLeft && !have_cluster_0 && codewordRowNumber == 0 {
                         l0 = fullValue;
                         q0 = quotient;
                         r0 = rowIndicatorValue;
@@ -195,7 +203,7 @@ impl DetectionRXingResultRowIndicatorColumn for DetectionRXingResultColumn {
                 1 => {
                     barcodeECLevel.setValue(rowIndicatorValue / 3);
                     barcodeRowCountLowerPart.setValue(rowIndicatorValue % 3);
-                    if isLeft && !have_cluster_1 {
+                    if isLeft && !have_cluster_1 && codewordRowNumber == 1 {
                         l3 = fullValue;
                         q3 = quotient;
                         r3 = rowIndicatorValue;
@@ -204,7 +212,7 @@ impl DetectionRXingResultRowIndicatorColumn for DetectionRXingResultColumn {
                 }
                 2 => {
                     barcodeColumnCount.setValue(rowIndicatorValue + 1);
-                    if isLeft && !have_cluster_2 {
+                    if isLeft && !have_cluster_2 && codewordRowNumber == 2 {
                         l6 = fullValue;
                         q6 = quotient;
                         // r6 is not stored - it equals num_cols - 1
@@ -244,6 +252,9 @@ impl DetectionRXingResultRowIndicatorColumn for DetectionRXingResultColumn {
                     r0,
                     r3,
                 });
+            }
+            if isLeft && !all_indicators.is_empty() {
+                wd.set_all_left_row_indicators(all_indicators);
             }
         }
 
@@ -362,4 +373,61 @@ fn adjustIncompleteIndicatorColumnRowNumbers(
         }
     }
     (averageRowHeight + 0.5) as i32
+}
+
+#[test]
+fn test_witness_collection_fails_on_missing_first_three_rows() {
+    use std::sync::Arc;
+    use crate::common::BitMatrix;
+    use crate::pdf417::decoder::BoundingBox;
+    // Ensure you import the trait so you can use the constructor
+    use crate::pdf417::decoder::DetectionRXingResultColumnTrait;
+    use crate::Point;
+
+    // 1. Setup basic requirements
+    let width = 100;
+    let height = 100;
+    let image_data = vec![vec![0u8; width]; height];
+    let mut witness = WitnessData::new(width, height, image_data);
+    
+    // FIX: Use Arc for the BitMatrix
+    let shared_matrix = Arc::new(BitMatrix::new(100, 100).unwrap());
+    
+    // Create the 4 corners of the box using the Point struct
+    let topLeft = Point::new(0.0, 0.0);
+    let bottomLeft = Point::new(0.0, 20.0);
+    let topRight = Point::new(20.0, 0.0);
+    let bottomRight = Point::new(20.0, 20.0);
+
+    // Now BoundingBox should validate correctly
+    let bounding_box = BoundingBox::new(
+        shared_matrix, 
+        Some(topLeft), 
+        Some(bottomLeft), 
+        Some(topRight), 
+        Some(bottomRight)
+    ).expect("BoundingBox should now be valid with explicit Points");      
+
+    // 2. FIX: Use the specific constructor name from your file
+    // Note: It takes a reference &BoundingBox
+    let mut column = DetectionRXingResultColumn::new_with_is_left(&bounding_box, true);
+
+    // 3. Mock the codewords (Index matches the Row Number for simplicity)
+    // We provide Row 0 and Row 2, but leave Row 1 as None
+    column.getCodewordsMut()[0] = Some(Codeword::new(0, 500, 0, 10)); // Row 0
+    column.getCodewordsMut()[1] = None;                             // Row 1 (MISSING)
+    column.getCodewordsMut()[2] = Some(Codeword::new(10, 510, 0, 10)); // Row 2
+
+    // 4. Run the metadata extraction
+    // This triggers the internal check: if have_cluster_0 && have_cluster_1 && have_cluster_2
+    let _ = column.getBarcodeMetadata(Some(&mut witness));
+
+    // 5. ASSERTIONS
+    // have_cluster_1 was false, so row_indicators must still be None
+    assert!(witness.row_indicators.is_none(), "Witness should be empty because Row 1 was missing");
+
+    // 6. FINALIZATION CHECK
+    // This proves the 'security' of your collection: incomplete data cannot be finalized
+    let result = witness.finalize();
+    assert!(result.is_err(), "Finalization should fail without first 3 row indicators");
 }
