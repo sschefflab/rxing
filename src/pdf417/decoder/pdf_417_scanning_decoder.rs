@@ -541,6 +541,8 @@ fn createDecoderRXingResultFromAmbiguousValues(
             // Capture codewords after error correction and write to witness data
             if let Some(wd) = witness_data.as_deref_mut() {
                 wd.set_codewords(pre_correction_codewords, codewords.to_vec());
+                let table_states = decoded_bit_stream_parser::collect_table_states(codewords);
+                wd.set_char_table_states(table_states);
             }
             return attempted_decode;
         }

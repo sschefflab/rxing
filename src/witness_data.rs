@@ -32,6 +32,25 @@ pub struct PolynomialResult {
     pub result_quotient: u32,
 }
 
+/// Represents a single character interpretation state in the PDF417 Text Compaction Mode.
+/// Mirrors the ZoKrates `TableState` struct in char_lookup.zok.
+///
+/// Encoding: next_next_table*2^16 + next_table*2^14 + this_table*2^12 + char*2^5 + base30_val
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[derive(Clone, Debug)]
+pub struct TableState {
+    /// 0-29: codeword value within the sub-mode (codeword / 30 or % 30)
+    pub base30_val: u32,
+    /// 0-127: ASCII character value (0 for mode-switch entries with no output char)
+    pub char: u32,
+    /// 0-3: current sub-mode (0=Alpha, 1=Lower, 2=Mixed, 3=Punctuation)
+    pub this_table: u32,
+    /// 0-3: next sub-mode after this entry
+    pub next_table: u32,
+    /// 0-3: sub-mode to return to after a temporary shift completes
+    pub next_next_table: u32,
+}
+
 /**
  * Holds witness data for zero-knowledge proof generation during barcode processing.
  *
@@ -81,6 +100,10 @@ pub struct WitnessData {
 
     /// Results from error correction polynomial evaluations
     pub polynomial_results: Option<Vec<PolynomialResult>>,
+
+    /// Character interpretation states from PDF417 Text Compaction Mode decoding.
+    /// Each text codeword (0-899) produces two entries: one for (codeword/30) and one for (codeword%30).
+    pub char_table_states: Option<Vec<TableState>>,
 }
 
 /**
@@ -128,6 +151,10 @@ pub struct FinalizedWitnessData {
 
     /// Results from error correction polynomial evaluations
     pub polynomial_results: Vec<PolynomialResult>,
+
+    /// Character interpretation states from PDF417 Text Compaction Mode decoding.
+    /// Each text codeword (0-899) produces two entries: one for (codeword/30) and one for (codeword%30).
+    pub char_table_states: Vec<TableState>,
 }
 
 impl FinalizedWitnessData {
@@ -146,6 +173,7 @@ impl FinalizedWitnessData {
         codewords: Vec<u32>,
         corrected_codewords: Vec<u32>,
         polynomial_results: Vec<PolynomialResult>,
+        char_table_states: Vec<TableState>,
     ) -> Self {
         assert_eq!(
             image.len(),
@@ -180,6 +208,7 @@ impl FinalizedWitnessData {
             codewords,
             corrected_codewords,
             polynomial_results,
+            char_table_states,
         }
     }
 
@@ -220,6 +249,11 @@ impl FinalizedWitnessData {
             "no polynomial results data",
         )?;
 
+        let char_table_states = Option::ok_or(
+            witness_data.char_table_states.clone(),
+            "no char table states data",
+        )?;
+
         Ok(Self {
             width: witness_data.width,
             height: witness_data.height,
@@ -235,6 +269,7 @@ impl FinalizedWitnessData {
             codewords,
             corrected_codewords,
             polynomial_results,
+            char_table_states,
         })
     }
 
@@ -311,6 +346,7 @@ impl WitnessData {
             codewords: None,
             corrected_codewords: None,
             polynomial_results: None,
+            char_table_states: None,
         }
     }
 
@@ -386,6 +422,10 @@ impl WitnessData {
 
     pub fn set_polynomial_results(&mut self, polynomial_results: Vec<PolynomialResult>) {
         self.polynomial_results = Some(polynomial_results);
+    }
+
+    pub fn set_char_table_states(&mut self, char_table_states: Vec<TableState>) {
+        self.char_table_states = Some(char_table_states);
     }
 
     /**
