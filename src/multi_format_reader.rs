@@ -17,7 +17,6 @@
 use std::collections::HashSet;
 
 use crate::common::Result;
-use crate::oned::cpp::ODReader;
 use crate::qrcode::cpp_port::QrReader;
 use crate::{
     BarcodeFormat, Binarizer, BinaryBitmap, Exceptions, RXingResult, Reader, WitnessData, aztec::AztecReader,

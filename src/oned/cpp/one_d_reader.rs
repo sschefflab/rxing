@@ -254,14 +254,14 @@ impl ODReader<'_> {
                                 }
                             }
 
-                            if (maxSymbols > 0
+                            if maxSymbols > 0
                                 && res.iter().fold(0, |acc, _e| {
                                     if let Some(itm) = &res[r] {
                                         acc + i32::from(itm.line_count() >= minLineCount as usize)
                                     } else {
                                         acc
                                     }
-                                }) == maxSymbols as i32)
+                                }) == maxSymbols as i32
                             {
                                 break 'outer;
                             }
@@ -447,7 +447,7 @@ impl MultipleBarcodeReader for ODReader<'_> {
 }
 
 impl<'a> ODReader<'_> {
-    pub fn new(hints: &DecodeHints) -> ODReader {
+    pub fn new(hints: &DecodeHints) -> ODReader<'_> {
         ODReader {
             reader: DXFilmEdgeReader::new(hints),
             try_harder: hints.TryHarder == Some(true),

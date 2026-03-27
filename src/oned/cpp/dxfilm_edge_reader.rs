@@ -226,7 +226,7 @@ impl RowReader for DXFilmEdgeReader<'_> {
 
         let minDataQuietZone: f32 = 0.5;
 
-        if (!IsPattern(&mut next, &DATA_START_PATTERN, minDataQuietZone)) {
+        if !IsPattern(&mut next, &DATA_START_PATTERN, minDataQuietZone) {
             return Err(Exceptions::NOT_FOUND);
         }
 
@@ -244,7 +244,7 @@ impl RowReader for DXFilmEdgeReader<'_> {
 
         // Read the data bits
         let mut dataBits = BitArray::default();
-        while (next.isValidWithN(1) && dataBits.get_size() < clock.dataLength() as usize) {
+        while next.isValidWithN(1) && dataBits.get_size() < clock.dataLength() as usize {
             let modules = (next[0] as f32 / clock.moduleSize() + 0.5) as i32;
             if modules >= 1 && modules <= 20 {
                 // even index means we are at a bar, otherwise at a space

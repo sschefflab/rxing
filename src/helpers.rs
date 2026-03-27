@@ -6,7 +6,7 @@ use image::DynamicImage;
 use crate::{
     BarcodeFormat, BinaryBitmap, DecodeHints, Exceptions, FilteredImageReader,
     Luma8LuminanceSource, MultiFormatReader, MultiUseMultiFormatReader, RXingResult, Reader,
-    common::{BitMatrix, HybridBinarizer, Result},
+    common::{BitMatrix, Result},
     multi::{GenericMultipleBarcodeReader, MultipleBarcodeReader},
 };
 
