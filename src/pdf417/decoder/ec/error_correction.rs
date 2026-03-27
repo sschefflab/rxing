@@ -15,10 +15,7 @@
  */
 
 use crate::{
-    Exceptions,
-    common::Result,
-    WitnessData,
-    pdf417::{decoder::ec::ModulusGF, pdf_417_common::NUMBER_OF_CODEWORDS},
+    Exceptions, PolynomialResult, WitnessData, common::Result, pdf417::{decoder::ec::ModulusGF, pdf_417_common::NUMBER_OF_CODEWORDS}
 };
 
 use super::ModulusPoly;

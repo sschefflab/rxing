@@ -5,10 +5,10 @@
 */
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::Binarizer;
 use crate::common::cpp_essentials::{GetPatternRow, PatternRow, PatternView};
-use crate::{BarcodeFormat, BinaryBitmap, DecodeHints, Exceptions, PointT, point};
-use crate::{RXingResult, Reader, multi::MultipleBarcodeReader};
+use crate::Binarizer;
+use crate::{multi::MultipleBarcodeReader, RXingResult, Reader};
+use crate::{point, BarcodeFormat, BinaryBitmap, DecodeHints, Exceptions, PointT};
 
 use crate::common::{LineOrientation, Quadrilateral, Result};
 
@@ -254,16 +254,14 @@ impl ODReader<'_> {
                                 }
                             }
 
-                            if maxSymbols > 0
-                                && res
-                                    .iter()
-                                    .filter(|e| {
-                                        e.as_ref().is_some_and(|itm| {
-                                            itm.line_count() >= minLineCount as usize
-                                        })
-                                    })
-                                    .count()
-                                    == maxSymbols as usize
+                            if (maxSymbols > 0
+                                && res.iter().fold(0, |acc, _e| {
+                                    if let Some(itm) = &res[r] {
+                                        acc + i32::from(itm.line_count() >= minLineCount as usize)
+                                    } else {
+                                        acc
+                                    }
+                                }) == maxSymbols as i32)
                             {
                                 break 'outer;
                             }
@@ -416,14 +414,16 @@ impl Reader for ODReader<'_> {
     fn decode<B: crate::Binarizer>(
         &mut self,
         image: &mut crate::BinaryBitmap<B>,
+        witness_data: Option<&mut crate::WitnessData>,
     ) -> crate::common::Result<crate::RXingResult> {
-        self.decode_with_hints(image, &DecodeHints::default())
+        self.decode_with_hints(image, &DecodeHints::default(), witness_data)
     }
 
     fn decode_with_hints<B: crate::Binarizer>(
         &mut self,
         image: &mut crate::BinaryBitmap<B>,
         hints: &DecodeHints,
+        _witness_data: Option<&mut crate::WitnessData>,
     ) -> crate::common::Result<crate::RXingResult> {
         self.decode_single(hints, image)
     }
@@ -446,7 +446,7 @@ impl MultipleBarcodeReader for ODReader<'_> {
     }
 }
 
-impl ODReader<'_> {
+impl<'a> ODReader<'_> {
     pub fn new(hints: &DecodeHints) -> ODReader {
         ODReader {
             reader: DXFilmEdgeReader::new(hints),
