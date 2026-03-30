@@ -536,7 +536,12 @@ fn createDecoderRXingResultFromAmbiguousValues(
         // Capture codewords before error correction
         let pre_correction_codewords: Vec<u32> = codewords.to_vec();
 
-        let attempted_decode = decodeCodewords(codewords, ecLevel, erasureArray, witness_data.as_deref_mut());
+        let attempted_decode = decodeCodewords(
+            codewords,
+            ecLevel,
+            erasureArray,
+            witness_data.as_deref_mut(),
+        );
         if attempted_decode.is_ok() {
             // Capture codewords after error correction and write to witness data
             if let Some(wd) = witness_data.as_deref_mut() {
@@ -778,7 +783,8 @@ fn detectCodeword(
         return None;
     }
 
-    let (decodedValue, normalizedBlocks) = pdf_417_codeword_decoder::getDecodedValueAndNormalizedBlocks(&moduleBitCount);
+    let (decodedValue, normalizedBlocks) =
+        pdf_417_codeword_decoder::getDecodedValueAndNormalizedBlocks(&moduleBitCount);
     let codeword = pdf_417_common::getCodeword(decodedValue);
     if codeword == -1 {
         return None;
@@ -786,13 +792,21 @@ fn detectCodeword(
 
     Some((
         Codeword::new(
-        startColumn,
-        endColumn,
-        getCodewordBucketNumber(decodedValue),
-        codeword as u32,
+            startColumn,
+            endColumn,
+            getCodewordBucketNumber(decodedValue),
+            codeword as u32,
         ),
-        if collectWitnessData { Some(moduleBitCount) } else { None },
-        if collectWitnessData { Some(normalizedBlocks) } else { None },
+        if collectWitnessData {
+            Some(moduleBitCount)
+        } else {
+            None
+        },
+        if collectWitnessData {
+            Some(normalizedBlocks)
+        } else {
+            None
+        },
     ))
 }
 
