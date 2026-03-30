@@ -142,7 +142,7 @@ pub struct FinalizedWitnessData {
     // The row number from the original image that row i in wb_image came from
     pub wb_inds: Vec<u32>,
     // How many times index i appears in wb_inds. Should be the same length as wb_inds.
-    pub wb_counts: Vec<u32>,
+    pub wb_ind_counts: Vec<u32>,
 
     // The "garbage" rows of the image that will not decode
     // Will always have exactly 89 rows. Padded with zero rows.
@@ -221,7 +221,7 @@ impl FinalizedWitnessData {
             );
         }
 
-        let wb_counts: Vec<u32> = wb_inds
+        let wb_ind_counts: Vec<u32> = wb_inds
             .iter()
             .map(|target| wb_inds.iter().filter(|&&x| x == *target).count() as u32)
             .collect();
@@ -234,7 +234,7 @@ impl FinalizedWitnessData {
             binarized_image,
             wb_image,
             wb_inds,
-            wb_counts,
+            wb_ind_counts,
             garbage_image,
             garbage_inds,
             num_zero_rows,
@@ -307,7 +307,7 @@ impl FinalizedWitnessData {
             "no char table states data",
         )?;
 
-        let wb_counts: Vec<u32> = wb_inds
+        let wb_ind_counts: Vec<u32> = wb_inds
             .iter()
             .map(|target| wb_inds.iter().filter(|&&x| x == *target).count() as u32)
             .collect();
@@ -320,7 +320,7 @@ impl FinalizedWitnessData {
             binarized_image,
             wb_image,
             wb_inds,
-            wb_counts,
+            wb_ind_counts,
             garbage_image,
             garbage_inds,
             num_zero_rows,
