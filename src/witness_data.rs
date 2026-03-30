@@ -562,6 +562,7 @@ mod tests {
         witness.set_polynomial_results(vec![PolynomialResult {
             result: 0,
             result_quotient: 0,
+            should_be_zero: true,
         }]);
 
         // Verify successful finalization
