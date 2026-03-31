@@ -201,6 +201,95 @@ pub fn decode(
         wd.set_normalized_blocks(allNormalizedBlocks);
     }
 
+    // Classify pixel rows into well-behaved (all data columns decoded) and garbage.
+    // wb_image is the same size as the original image; garbage rows within the bounding
+    // box are replaced by the nearest well-behaved row above them (or the first
+    // well-behaved row below if no good row precedes them). wb_inds[i] is the source row
+    // used for bounding-box row (min_y + i). garbage_image is a compact image of only
+    // the garbage pixel rows, unchanged.
+    if witness_data.is_some() {
+        let min_y = boundingBox.getMinY();
+        let max_y = boundingBox.getMaxY();
+        let barcode_col_count = detectionRXingResult.getBarcodeColumnCount();
+        let image_width = image.getWidth();
+        let image_height = image.getHeight();
+        let num_rows = (max_y - min_y + 1) as usize;
+
+        // Determine which bounding-box rows are well-behaved
+        let mut is_good = vec![false; num_rows];
+        {
+            let columns = detectionRXingResult.getDetectionRXingResultColumns();
+            for image_row in min_y..=max_y {
+                let codeword_idx = (image_row - min_y) as usize;
+                is_good[codeword_idx] = (1..=barcode_col_count).all(|col| {
+                    columns[col]
+                        .as_ref()
+                        .map_or(false, |c| c.getCodewords()[codeword_idx].is_some())
+                    // this codewords array contains one row for every pixel row, not logical barcode row
+                });
+            }
+        }
+
+        // Forward pass: map each row to itself if good, or to the last good row above
+        let mut wb_inds_opt: Vec<Option<u32>> = Vec::with_capacity(num_rows);
+        let mut last_good: Option<u32> = None;
+        for i in 0..num_rows {
+            let image_row = min_y + i as u32;
+            if is_good[i] {
+                last_good = Some(image_row);
+            }
+            wb_inds_opt.push(last_good);
+        }
+
+        // For leading garbage rows (no good row above), use the first good row below
+        let first_good = wb_inds_opt.iter().find_map(|&x| x);
+        let wb_inds: Vec<u32> = wb_inds_opt
+            .iter()
+            .enumerate()
+            .map(|(i, &opt)| opt.or(first_good).unwrap_or(min_y + i as u32))
+            .collect();
+
+        let mut garbage_inds: Vec<i32> = (0..num_rows)
+            .filter(|&i| !is_good[i])
+            .map(|i| (min_y + i as u32) as i32)
+            .collect();
+
+        // wb_image: same dimensions as original; bounding-box rows sourced from wb_inds,
+        // rows outside the bounding box copied directly
+        let mut wb_bm = BitMatrix::new(image_width, image_height).unwrap();
+        for y in 0..image_height {
+            let src_row = if y >= min_y && y <= max_y {
+                wb_inds[(y - min_y) as usize]
+            } else {
+                y
+            };
+            wb_bm.setRow(y, &image.getRow(src_row));
+        }
+
+        // garbage_image: exactly 89 rows. Actual garbage rows first, remainder padded
+        // with zero rows. garbage_inds uses -1 for padded rows.
+        const GARBAGE_ROWS: usize = 89;
+        assert!(
+            garbage_inds.len() <= GARBAGE_ROWS,
+            "Too many garbage rows: {} (max {})",
+            garbage_inds.len(),
+            GARBAGE_ROWS
+        );
+        let mut garbage_bm = BitMatrix::new(image_width, GARBAGE_ROWS as u32).unwrap();
+        for (dest_row, &src_row) in garbage_inds.iter().enumerate() {
+            garbage_bm.setRow(dest_row as u32, &image.getRow(src_row as u32));
+        }
+        // Pad garbage_inds with -1s to reach exactly GARBAGE_ROWS
+        garbage_inds.resize(GARBAGE_ROWS, -1);
+
+        if let Some(wd) = witness_data.as_deref_mut() {
+            wd.wb_image = Some(wb_bm);
+            wd.wb_inds = Some(wb_inds);
+            wd.garbage_image = Some(garbage_bm);
+            wd.garbage_inds = Some(garbage_inds);
+        }
+    }
+
     createDecoderRXingResult(&mut detectionRXingResult, witness_data)
 }
 
@@ -323,69 +412,6 @@ fn getBarcodeMetadata<T: DetectionRXingResultRowIndicatorColumn>(
     }
 
     left_ri_md
-
-    // let leftBarcodeMetadata = if leftRowIndicatorColumn.is_none()
-    //     || leftRowIndicatorColumn
-    //         .as_mut()
-    //         .unwrap()
-    //         .getBarcodeMetadata()
-    //         .is_none()
-    // {
-    //     return if rightRowIndicatorColumn.is_none() {
-    //         None
-    //     } else {
-    //         rightRowIndicatorColumn
-    //             .as_mut()
-    //             .unwrap()
-    //             .getBarcodeMetadata()
-    //     };
-    // } else {
-    //     leftRowIndicatorColumn
-    //         .as_mut()
-    //         .unwrap()
-    //         .getBarcodeMetadata()
-    // };
-    // // if leftRowIndicatorColumn.is_none() ||
-    // //     (leftBarcodeMetadata = leftRowIndicatorColumn.getBarcodeMetadata()).is_none() {
-    // //   return if rightRowIndicatorColumn.is_none()  {None} else  {rightRowIndicatorColumn.getBarcodeMetadata()};
-    // // }
-
-    // let rightBarcodeMetadata = if rightRowIndicatorColumn.is_none() {
-    //     return leftBarcodeMetadata;
-    // } else if let Some(mdt) = rightRowIndicatorColumn
-    //     .as_mut()
-    //     .unwrap()
-    //     .getBarcodeMetadata()
-    // {
-    //     mdt
-    //     // rightRowIndicatorColumn
-    //     //     .as_mut()
-    //     //     .unwrap()
-    //     //     .getBarcodeMetadata()
-    //     //     .unwrap()
-    // } else {
-    //     return leftBarcodeMetadata;
-    // };
-    // // if rightRowIndicatorColumn.is_none() ||
-    // //     (rightBarcodeMetadata = rightRowIndicatorColumn.getBarcodeMetadata()).is_none() {
-    // //   return leftBarcodeMetadata;
-    // // }
-
-    // leftBarcodeMetadata?;
-
-    // if leftBarcodeMetadata.as_ref().unwrap().getColumnCount()
-    //     != rightBarcodeMetadata.getColumnCount()
-    //     && leftBarcodeMetadata
-    //         .as_ref()
-    //         .unwrap()
-    //         .getErrorCorrectionLevel()
-    //         != rightBarcodeMetadata.getErrorCorrectionLevel()
-    //     && leftBarcodeMetadata.as_ref().unwrap().getRowCount() != rightBarcodeMetadata.getRowCount()
-    // {
-    //     return None;
-    // }
-
-    // leftBarcodeMetadata
 }
 
 fn getRowIndicatorColumn<'a>(
