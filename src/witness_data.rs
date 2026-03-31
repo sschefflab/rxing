@@ -6,6 +6,7 @@
  */
 
 use crate::common::BitMatrix;
+use crate::pdf417::decoder::pdf_417_codeword_decoder::sampleBitCounts;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -83,11 +84,6 @@ pub struct WitnessData {
     pub garbage_image: Option<BitMatrix>,
     pub garbage_inds: Option<Vec<i32>>,
 
-    /// Lengths of blocks of contiguous pixels of the same color
-    pub blocks: Option<Vec<Vec<u32>>>,
-
-    pub normalized_blocks: Option<Vec<Vec<[u32; 8]>>>,
-
     /// Barcode metadata values: how many rows and columns it has, and its error correction level
     pub row_count: Option<u32>,
     pub column_count: Option<u32>,
@@ -157,10 +153,10 @@ pub struct FinalizedWitnessData {
     pub num_zero_rows: u32,
     pub garbage_lookups: Vec<[u128; 6]>,
 
-    /// Lengths of blocks of contiguous pixels of the same color
-    pub blocks: Vec<Vec<u32>>,
-
-    pub normalized_blocks: Vec<Vec<[u32; 8]>>,
+    pub wb_blocks: Vec<Vec<u32>>,
+    pub wb_normalized_blocks: Vec<Vec<[u32; 8]>>,
+    pub garbage_blocks: Vec<Vec<u32>>,
+    pub garbage_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
     pub row_count: u32,
     pub column_count: u32,
@@ -194,8 +190,6 @@ impl FinalizedWitnessData {
         wb_inds: Vec<u32>,
         garbage_image: BitMatrix,
         garbage_inds: Vec<i32>,
-        blocks: Vec<Vec<u32>>,
-        normalized_blocks: Vec<Vec<[u32; 8]>>,
         row_count: u32,
         column_count: u32,
         ec_level: u32,
@@ -223,14 +217,23 @@ impl FinalizedWitnessData {
                 row.len()
             );
         }
+        const WB_B: usize = 27;
+        const G_B: usize = 1080;
+        const WB_NB: usize = 273;
+        const G_NB: usize = 1080;
 
         let wb_ind_counts: Vec<u32> = wb_inds
             .iter()
             .map(|target| wb_inds.iter().filter(|&&x| x == *target).count() as u32)
             .collect();
         let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
-        let wb_lookups = Self::compute_lookups(&wb_image, 27);
-        let garbage_lookups = Self::compute_lookups(&garbage_image, 1080);
+        let wb_lookups = Self::compute_lookups(&wb_image, WB_B);
+        let garbage_lookups = Self::compute_lookups(&garbage_image, G_B);
+
+        let wb_blocks = Self::compute_blocks(&wb_image, WB_NB);
+        let wb_normalized_blocks = Self::compute_normalized_blocks(&wb_blocks);
+        let garbage_blocks = Self::compute_blocks(&garbage_image, G_NB);
+        let garbage_normalized_blocks = Self::compute_normalized_blocks(&garbage_blocks);
 
         Self {
             width,
@@ -245,8 +248,10 @@ impl FinalizedWitnessData {
             garbage_inds,
             num_zero_rows,
             garbage_lookups,
-            blocks,
-            normalized_blocks,
+            wb_blocks,
+            wb_normalized_blocks,
+            garbage_blocks,
+            garbage_normalized_blocks,
             row_count,
             column_count,
             ec_level,
@@ -328,6 +333,47 @@ impl FinalizedWitnessData {
         result
     }
 
+    fn compute_blocks(image: &BitMatrix, len: usize) -> Vec<Vec<u32>> {
+        let width = image.width() as usize;
+        let height = image.height() as usize;
+        let mut result: Vec<Vec<u32>> = Vec::new();
+
+        for r in 0..height {
+            let mut row_result = Vec::new();
+            if width == 0 {
+                continue;
+            }
+            let mut current_run: u32 = 1;
+            for i in 1..width {
+                let prev = image.get((i - 1) as u32, r as u32);
+                let curr = image.get(i as u32, r as u32);
+                if curr == prev {
+                    current_run += 1;
+                } else {
+                    row_result.push(current_run);
+                    current_run = 1;
+                }
+            }
+            row_result.push(current_run);
+            row_result.resize(len, 0);
+            result.push(row_result);
+        }
+
+        result
+    }
+
+    fn compute_normalized_blocks(blocks: &[Vec<u32>]) -> Vec<Vec<[u32; 8]>> {
+        blocks
+            .iter()
+            .map(|row| {
+                row.chunks_exact(8)
+                    .filter(|window| window.iter().all(|&x| x != 0))
+                    .map(|window| sampleBitCounts(window))
+                    .collect()
+            })
+            .collect()
+    }
+
     pub fn from_witness_data(witness_data: &WitnessData) -> Result<Self, String> {
         let binarized_image = Option::ok_or(
             witness_data.binarized_image.clone(),
@@ -340,13 +386,6 @@ impl FinalizedWitnessData {
             Option::ok_or(witness_data.garbage_image.clone(), "no garbage_image data")?;
         let garbage_inds =
             Option::ok_or(witness_data.garbage_inds.clone(), "no garbage_inds data")?;
-
-        let blocks = Option::ok_or(witness_data.blocks.clone(), "no blocks data")?;
-
-        let normalized_blocks = Option::ok_or(
-            witness_data.normalized_blocks.clone(),
-            "no normalized blocks data",
-        )?;
 
         let row_count = Option::ok_or(witness_data.row_count.clone(), "no row count data")?;
 
@@ -392,8 +431,6 @@ impl FinalizedWitnessData {
             wb_inds,
             garbage_image,
             garbage_inds,
-            blocks,
-            normalized_blocks,
             row_count,
             column_count,
             ec_level,
@@ -473,8 +510,6 @@ impl WitnessData {
             wb_inds: None,
             garbage_image: None,
             garbage_inds: None,
-            blocks: None,
-            normalized_blocks: None,
             row_count: None,
             column_count: None,
             ec_level: None,
@@ -517,20 +552,6 @@ impl WitnessData {
 
     pub fn set_binarized_image(&mut self, binarized_image: BitMatrix) {
         self.binarized_image = Some(binarized_image)
-    }
-
-    /// does the flattening here
-    pub fn set_blocks(&mut self, blocks: Vec<Vec<[u32; 8]>>) {
-        let flat: Vec<Vec<u32>> = blocks
-            .iter()
-            .map(|column| column.iter().flat_map(|bits| *bits).collect())
-            .collect();
-
-        self.blocks = Some(flat);
-    }
-
-    pub fn set_normalized_blocks(&mut self, normalized_blocks: Vec<Vec<[u32; 8]>>) {
-        self.normalized_blocks = Some(normalized_blocks);
     }
 
     pub fn set_barcode_metadata(&mut self, row_count: u32, column_count: u32, ec_level: u32) {
@@ -682,8 +703,6 @@ mod tests {
         witness.wb_inds = Some(vec![0, 1]);
         witness.garbage_image = Some(BitMatrix::new(2, 89).unwrap());
         witness.garbage_inds = Some(vec![-1; 89]);
-        witness.set_blocks(vec![]);
-        witness.set_normalized_blocks(vec![]);
         witness.set_barcode_metadata(30, 10, 2);
         witness.set_row_indicators(RowIndicatorVars {
             l0: 1,

@@ -116,10 +116,6 @@ pub fn decode(
     detectionRXingResult.setDetectionRXingResultColumn(0, leftRowIndicatorColumn);
     detectionRXingResult.setDetectionRXingResultColumn(maxBarcodeColumn, rightRowIndicatorColumn);
 
-    // to collect all blocks
-    let mut allBlockBitCounts: Vec<Vec<[u32; 8]>> = Vec::new();
-    let mut allNormalizedBlocks: Vec<Vec<[u32; 8]>> = Vec::new();
-
     // let leftToRight = leftRowIndicatorColumn.is_some();
     for barcodeColumnCount in 1..=maxBarcodeColumn {
         // for (int barcodeColumnCount = 1; barcodeColumnCount <= maxBarcodeColumn; barcodeColumnCount++) {
@@ -147,8 +143,6 @@ pub fn decode(
 
         let mut startColumn: i32 = -1;
         let mut previousStartColumn = startColumn;
-        let mut rowBlockBitCounts: Vec<[u32; 8]> = Vec::new();
-        let mut rowNormalizedBlocks: Vec<[u32; 8]> = Vec::new();
         // TODO start at a row for which we know the start position, then detect upwards and downwards from there.
         for imageRow in boundingBox.getMinY()..=boundingBox.getMaxY() {
             // for (int imageRow = boundingBox.getMinY(); imageRow <= boundingBox.getMaxY(); imageRow++) {
@@ -161,7 +155,7 @@ pub fn decode(
                 }
                 startColumn = previousStartColumn;
             }
-            if let Some((codeword, Some(moduleBits), Some(normalizedBlocks))) = detectCodeword(
+            if let Some(codeword) = detectCodeword(
                 image,
                 boundingBox.getMinX(),
                 boundingBox.getMaxX(),
@@ -170,10 +164,7 @@ pub fn decode(
                 imageRow,
                 minCodewordWidth,
                 maxCodewordWidth,
-                true,
             ) {
-                // let codeword = codeword.unwrap();
-                //detectionRXingResultColumn.setCodeword(imageRow, codeword);
                 detectionRXingResult
                     .getDetectionRXingResultColumnMut(barcodeColumn)
                     .as_mut()
@@ -182,12 +173,8 @@ pub fn decode(
                 previousStartColumn = startColumn;
                 minCodewordWidth = minCodewordWidth.min(codeword.getWidth());
                 maxCodewordWidth = maxCodewordWidth.max(codeword.getWidth());
-                rowBlockBitCounts.push(moduleBits);
-                rowNormalizedBlocks.push(normalizedBlocks);
             }
         }
-        allBlockBitCounts.push(rowBlockBitCounts);
-        allNormalizedBlocks.push(rowNormalizedBlocks);
     }
 
     // Write barcode metadata to witness data if provided
@@ -197,8 +184,6 @@ pub fn decode(
             detectionRXingResult.getBarcodeColumnCount() as u32,
             detectionRXingResult.getBarcodeECLevel(),
         );
-        wd.set_blocks(allBlockBitCounts);
-        wd.set_normalized_blocks(allNormalizedBlocks);
     }
 
     // Classify pixel rows into well-behaved (all data columns decoded) and garbage.
@@ -432,7 +417,7 @@ fn getRowIndicatorColumn<'a>(
         while imageRow <= boundingBox.getMaxY() as i32 && imageRow >= boundingBox.getMinY() as i32 {
             // for (int imageRow = (int) startPoint.getY(); imageRow <= boundingBox.getMaxY() &&
             //     imageRow >= boundingBox.getMinY(); imageRow += increment) {
-            if let Some((codeword, _, _)) = detectCodeword(
+            if let Some(codeword) = detectCodeword(
                 image,
                 0,
                 image.getWidth(),
@@ -441,7 +426,6 @@ fn getRowIndicatorColumn<'a>(
                 imageRow as u32,
                 minCodewordWidth,
                 maxCodewordWidth,
-                false,
             ) {
                 // if codeword.is_some() {
                 rowIndicatorColumn.setCodeword(imageRow as u32, codeword);
@@ -738,7 +722,6 @@ fn getStartColumn(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn detectCodeword(
     image: &BitMatrix,
     minColumn: u32,
@@ -748,8 +731,7 @@ fn detectCodeword(
     imageRow: u32,
     minCodewordWidth: u32,
     maxCodewordWidth: u32,
-    collectWitnessData: bool,
-) -> Option<(Codeword, Option<[u32; 8]>, Option<[u32; 8]>)> {
+) -> Option<Codeword> {
     let mut startColumn = adjustCodewordStartColumn(
         image,
         minColumn,
@@ -809,30 +791,17 @@ fn detectCodeword(
         return None;
     }
 
-    let (decodedValue, normalizedBlocks) =
-        pdf_417_codeword_decoder::getDecodedValueAndNormalizedBlocks(&moduleBitCount);
+    let decodedValue = pdf_417_codeword_decoder::getDecodedValue(&moduleBitCount);
     let codeword = pdf_417_common::getCodeword(decodedValue);
     if codeword == -1 {
         return None;
     }
 
-    Some((
-        Codeword::new(
-            startColumn,
-            endColumn,
-            getCodewordBucketNumber(decodedValue),
-            codeword as u32,
-        ),
-        if collectWitnessData {
-            Some(moduleBitCount)
-        } else {
-            None
-        },
-        if collectWitnessData {
-            Some(normalizedBlocks)
-        } else {
-            None
-        },
+    Some(Codeword::new(
+        startColumn,
+        endColumn,
+        getCodewordBucketNumber(decodedValue),
+        codeword as u32,
     ))
 }
 
