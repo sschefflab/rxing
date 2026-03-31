@@ -167,6 +167,9 @@ pub struct WitnessData {
     /// Character interpretation states from PDF417 Text Compaction Mode decoding.
     /// Each text codeword (0-899) produces two entries: one for (codeword/30) and one for (codeword%30).
     pub char_table_states: Option<Vec<TableState>>,
+
+    /// The final decoded text of the barcode, represented as ASCII integer values.
+    pub chars: Option<Vec<u32>>,
 }
 
 /**
@@ -237,6 +240,9 @@ pub struct FinalizedWitnessData {
     /// Character interpretation states from PDF417 Text Compaction Mode decoding.
     /// Each text codeword (0-899) produces two entries: one for (codeword/30) and one for (codeword%30).
     pub char_table_states: Vec<TableState>,
+
+    /// The final decoded text of the barcode, represented as ASCII integer values.
+    pub chars: Vec<u32>,
 }
 
 impl FinalizedWitnessData {
@@ -260,6 +266,7 @@ impl FinalizedWitnessData {
         corrected_codewords: Vec<u32>,
         polynomial_results: Vec<PolynomialResult>,
         char_table_states: Vec<TableState>,
+        chars: Vec<u32>,
     ) -> Self {
         assert_eq!(
             image.len(),
@@ -307,6 +314,7 @@ impl FinalizedWitnessData {
             corrected_codewords,
             polynomial_results,
             char_table_states,
+            chars,
         }
     }
 
@@ -367,6 +375,8 @@ impl FinalizedWitnessData {
 
         add_dummy_table_states(&mut char_table_states, row_count, column_count, ec_level);
 
+        let chars = Option::ok_or(witness_data.chars.clone(), "no chars data")?;
+
         let wb_ind_counts: Vec<u32> = wb_inds
             .iter()
             .map(|target| wb_inds.iter().filter(|&&x| x == *target).count() as u32)
@@ -395,6 +405,7 @@ impl FinalizedWitnessData {
             corrected_codewords,
             polynomial_results,
             char_table_states,
+            chars,
         })
     }
 
@@ -476,6 +487,7 @@ impl WitnessData {
             corrected_codewords: None,
             polynomial_results: None,
             char_table_states: None,
+            chars: None,
         }
     }
 
@@ -550,6 +562,10 @@ impl WitnessData {
 
     pub fn set_char_table_states(&mut self, char_table_states: Vec<TableState>) {
         self.char_table_states = Some(char_table_states);
+    }
+
+    pub fn set_chars(&mut self, chars: Vec<u32>) {
+        self.chars = Some(chars);
     }
 
     /**
