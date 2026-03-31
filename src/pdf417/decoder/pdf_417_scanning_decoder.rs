@@ -225,6 +225,7 @@ pub fn decode(
                     columns[col]
                         .as_ref()
                         .map_or(false, |c| c.getCodewords()[codeword_idx].is_some())
+                    // this codewords array contains one row for every pixel row, not logical barcode row
                 });
             }
         }
@@ -411,69 +412,6 @@ fn getBarcodeMetadata<T: DetectionRXingResultRowIndicatorColumn>(
     }
 
     left_ri_md
-
-    // let leftBarcodeMetadata = if leftRowIndicatorColumn.is_none()
-    //     || leftRowIndicatorColumn
-    //         .as_mut()
-    //         .unwrap()
-    //         .getBarcodeMetadata()
-    //         .is_none()
-    // {
-    //     return if rightRowIndicatorColumn.is_none() {
-    //         None
-    //     } else {
-    //         rightRowIndicatorColumn
-    //             .as_mut()
-    //             .unwrap()
-    //             .getBarcodeMetadata()
-    //     };
-    // } else {
-    //     leftRowIndicatorColumn
-    //         .as_mut()
-    //         .unwrap()
-    //         .getBarcodeMetadata()
-    // };
-    // // if leftRowIndicatorColumn.is_none() ||
-    // //     (leftBarcodeMetadata = leftRowIndicatorColumn.getBarcodeMetadata()).is_none() {
-    // //   return if rightRowIndicatorColumn.is_none()  {None} else  {rightRowIndicatorColumn.getBarcodeMetadata()};
-    // // }
-
-    // let rightBarcodeMetadata = if rightRowIndicatorColumn.is_none() {
-    //     return leftBarcodeMetadata;
-    // } else if let Some(mdt) = rightRowIndicatorColumn
-    //     .as_mut()
-    //     .unwrap()
-    //     .getBarcodeMetadata()
-    // {
-    //     mdt
-    //     // rightRowIndicatorColumn
-    //     //     .as_mut()
-    //     //     .unwrap()
-    //     //     .getBarcodeMetadata()
-    //     //     .unwrap()
-    // } else {
-    //     return leftBarcodeMetadata;
-    // };
-    // // if rightRowIndicatorColumn.is_none() ||
-    // //     (rightBarcodeMetadata = rightRowIndicatorColumn.getBarcodeMetadata()).is_none() {
-    // //   return leftBarcodeMetadata;
-    // // }
-
-    // leftBarcodeMetadata?;
-
-    // if leftBarcodeMetadata.as_ref().unwrap().getColumnCount()
-    //     != rightBarcodeMetadata.getColumnCount()
-    //     && leftBarcodeMetadata
-    //         .as_ref()
-    //         .unwrap()
-    //         .getErrorCorrectionLevel()
-    //         != rightBarcodeMetadata.getErrorCorrectionLevel()
-    //     && leftBarcodeMetadata.as_ref().unwrap().getRowCount() != rightBarcodeMetadata.getRowCount()
-    // {
-    //     return None;
-    // }
-
-    // leftBarcodeMetadata
 }
 
 fn getRowIndicatorColumn<'a>(
