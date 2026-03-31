@@ -107,6 +107,9 @@ pub struct WitnessData {
     pub char_table_states: Option<Vec<TableState>>,
 }
 
+const WB_DECOMP: usize = 2;
+const G_DECOMP: usize = 4;
+
 /**
  * WitnessData with no optional fields
  */
@@ -140,7 +143,10 @@ pub struct FinalizedWitnessData {
     // How many times index i appears in wb_inds. Should be the same length as wb_inds.
     pub wb_ind_counts: Vec<u32>,
 
+    // data that should be in the lookup table we use in the proof for the well-behaved image
     pub wb_lookups: Vec<[u128; 6]>,
+    // the baseB decomp of each encoded chunk of blocks
+    pub wb_baseB_decomps: Vec<[usize; WB_DECOMP]>,
 
     // The "garbage" rows of the image that will not decode
     // Will always have exactly 89 rows. Padded with zero rows.
@@ -151,10 +157,15 @@ pub struct FinalizedWitnessData {
     pub garbage_inds: Vec<i32>,
     // How many zero rows appear in garbage_image
     pub num_zero_rows: u32,
+
+    // data that should be in the lookup table we use in the proof for the garbage image
     pub garbage_lookups: Vec<[u128; 6]>,
+    // the baseB decomp of each encoded chunk of blocks
+    pub g_baseB_decomps: Vec<[usize; G_DECOMP]>,
 
     pub wb_blocks: Vec<Vec<u32>>,
     pub wb_normalized_blocks: Vec<Vec<[u32; 8]>>,
+
     pub garbage_blocks: Vec<Vec<u32>>,
     pub garbage_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
@@ -227,8 +238,10 @@ impl FinalizedWitnessData {
             .map(|target| wb_inds.iter().filter(|&&x| x == *target).count() as u32)
             .collect();
         let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
-        let wb_lookups = Self::compute_lookups(&wb_image, WB_B);
-        let garbage_lookups = Self::compute_lookups(&garbage_image, G_B);
+        let (wb_lookups, wb_baseB_decomps) =
+            Self::compute_lookups_and_decomps::<WB_DECOMP>(&wb_image, WB_B);
+        let (garbage_lookups, g_baseB_decomps) =
+            Self::compute_lookups_and_decomps::<G_DECOMP>(&garbage_image, G_B);
 
         let wb_blocks = Self::compute_blocks(&wb_image, WB_NB);
         let wb_normalized_blocks = Self::compute_normalized_blocks(&wb_blocks);
@@ -244,10 +257,12 @@ impl FinalizedWitnessData {
             wb_inds,
             wb_ind_counts,
             wb_lookups,
+            wb_baseB_decomps,
             garbage_image,
             garbage_inds,
             num_zero_rows,
             garbage_lookups,
+            g_baseB_decomps,
             wb_blocks,
             wb_normalized_blocks,
             garbage_blocks,
@@ -264,11 +279,15 @@ impl FinalizedWitnessData {
         }
     }
 
-    fn compute_lookups(image: &BitMatrix, B: usize) -> Vec<[u128; 6]> {
+    fn compute_lookups_and_decomps<const N: usize>(
+        image: &BitMatrix,
+        B: usize,
+    ) -> (Vec<[u128; 6]>, Vec<[usize; N]>) {
         const L: usize = 10;
         let width = image.width() as usize;
         let height = image.height() as usize;
-        let mut result = Vec::new();
+        let mut lookups = Vec::new();
+        let mut decomps = Vec::new();
 
         for row in 0..height {
             let num_chunks = width.div_ceil(L);
@@ -306,11 +325,21 @@ impl FinalizedWitnessData {
                     blocks_base_b = blocks_base_b * B as u128 + b;
                 }
 
+                // Base-B decomposition: blocks_vec padded with leading zeros to length N
+                let nb = blocks_vec.len();
+                assert!(nb <= N, "blocks_vec length {nb} exceeds decomp size {N}");
+                let mut decomp = [0; N];
+                let offset = N - nb;
+                for (i, &b) in blocks_vec.iter().enumerate() {
+                    decomp[offset + i] = b as usize;
+                }
+                decomps.push(decomp);
+
                 // r = last block length
                 let r = *blocks_vec.last().unwrap();
 
                 // nb = number of blocks
-                let nb = blocks_vec.len() as u128;
+                let nb = nb as u128;
 
                 // odd = nb % 2 == 1
                 let odd = nb % 2;
@@ -326,11 +355,11 @@ impl FinalizedWitnessData {
                 };
                 let block: u128 = if last_is_black { 1 } else { 0 };
 
-                result.push([int_val, blocks_base_b, r, nb, odd, block]);
+                lookups.push([int_val, blocks_base_b, r, nb, odd, block]);
             }
         }
 
-        result
+        (lookups, decomps)
     }
 
     fn compute_blocks(image: &BitMatrix, len: usize) -> Vec<Vec<u32>> {
