@@ -692,7 +692,6 @@ pub fn NormalizedPattern<const LEN: usize, const SUM: usize>(
         };
         let mi = mi.ok_or(Exceptions::ILLEGAL_STATE)?;
         is[*mi as usize] += err as PatternType;
-        rs[*mi as usize] -= err as f32;
     }
 
     Ok(is)
