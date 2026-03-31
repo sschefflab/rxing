@@ -6,12 +6,12 @@ use image::DynamicImage;
 use crate::{
     BarcodeFormat, BinaryBitmap, DecodeHints, Exceptions, FilteredImageReader,
     Luma8LuminanceSource, MultiFormatReader, MultiUseMultiFormatReader, RXingResult, Reader,
-    common::{BitMatrix, HybridBinarizer, Result},
+    common::{BitMatrix, Result},
     multi::{GenericMultipleBarcodeReader, MultipleBarcodeReader},
 };
 
 #[cfg(feature = "image")]
-use crate::BufferedImageLuminanceSource;
+use crate::{BufferedImageLuminanceSource, common::FixedThresholdBinarizer};
 
 #[cfg(feature = "svg_read")]
 pub fn detect_in_svg(file_name: &str, barcode_type: Option<BarcodeFormat>) -> Result<RXingResult> {
@@ -26,7 +26,7 @@ pub fn detect_in_svg_with_hints(
 ) -> Result<RXingResult> {
     use std::{fs::File, io::Read};
 
-    use crate::SVGLuminanceSource;
+    use crate::{SVGLuminanceSource, common::FixedThresholdBinarizer};
 
     let path = PathBuf::from(file_name);
     if !path.exists() {
@@ -71,7 +71,7 @@ pub fn detect_multiple_in_svg_with_hints(
 ) -> Result<Vec<RXingResult>> {
     use std::{fs::File, io::Read};
 
-    use crate::SVGLuminanceSource;
+    use crate::{SVGLuminanceSource, common::FixedThresholdBinarizer};
 
     let path = PathBuf::from(file_name);
     if !path.exists() {

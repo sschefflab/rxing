@@ -22,6 +22,7 @@ use crate::{
     Exceptions,
     common::{DecoderRXingResult, ECIStringBuilder, Eci, Result},
     pdf417::PDF417RXingResultMetadata,
+    TableState,
 };
 
 /**
@@ -30,6 +31,112 @@ use crate::{
  * @author SITA Lab (kevin.osullivan@sita.aero)
  * @author Guenther Grau
  */
+
+// PDF417 Text Compaction Mode lookup tables.
+// These mirror the Python char_array.py tables used to generate the ZoKrates ENCODED_STATE_MACHINE.
+// Indexed by: this_table * 30 + base30_val  (0-119)
+// Sub-modes: 0=Alpha, 1=Lower, 2=Mixed, 3=Punctuation
+
+/// ASCII character values for each (sub-mode, base30_val) pair.
+/// 0 means no character is emitted (mode-switch entry).
+const TEXT_MODE_TABLE: [u32; 120] = [
+    // Alpha (0-29): A-Z, space, ll, ml, ps
+    65, 66, 67, 68, 69, 70, 71, 72, 73, 74,
+    75, 76, 77, 78, 79, 80, 81, 82, 83, 84,
+    85, 86, 87, 88, 89, 90, 32, 0, 0, 0,
+    // Lower (30-59): a-z, space, as, ml, ps
+    97, 98, 99, 100, 101, 102, 103, 104, 105, 106,
+    107, 108, 109, 110, 111, 112, 113, 114, 115, 116,
+    117, 118, 119, 120, 121, 122, 32, 0, 0, 0,
+    // Mixed (60-89): 0-9, &, CR, HT, ',', ':', #, -, ., $, /, +, %, *, =, ^, pl, space, ll, al, ps
+    48, 49, 50, 51, 52, 53, 54, 55, 56, 57,
+    38, 13, 9, 44, 58, 35, 45, 46, 36, 47,
+    43, 37, 42, 61, 94, 0, 32, 0, 0, 0,
+    // Punctuation (90-119)
+    59, 60, 62, 64, 91, 92, 93, 95, 96, 126,
+    33, 13, 9, 44, 58, 10, 45, 46, 36, 47,
+    34, 124, 42, 40, 41, 63, 123, 125, 39, 0,
+];
+
+/// Next sub-mode after each (sub-mode, base30_val) entry.
+const NEXT_MODE_TABLE: [u32; 120] = [
+    // Alpha (0-29)
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 1, 2, 3,
+    // Lower (30-59)
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 0, 2, 3,
+    // Mixed (60-89)
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    2, 2, 2, 2, 2, 3, 2, 1, 0, 3,
+    // Punctuation (90-119)
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 0,
+];
+
+/// Sub-mode to return to after a temporary shift completes (next_next_table).
+const NEXT_NEXT_MODE_TABLE: [u32; 120] = [
+    // Alpha (0-29)
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 1, 2, 0,
+    // Lower (30-59)
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 2, 1,
+    // Mixed (60-89)
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    2, 2, 2, 2, 2, 3, 2, 1, 0, 2,
+    // Punctuation (90-119)
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 0,
+];
+
+/// Collect `TableState` entries for every base-30 half-codeword produced by the text compaction
+/// portion of a decoded PDF417 symbol.
+///
+/// Starting from the first data codeword (index 1, since index 0 is the symbol length descriptor),
+/// each codeword value 0–899 is split into `c1 = value / 30` and `c2 = value % 30`.  Both halves
+/// yield one `TableState` each, produced by looking up the current sub-mode against the static
+/// character tables that mirror the ZoKrates `ENCODED_STATE_MACHINE`.
+///
+/// Mode switches (codeword values ≥ 900) exit text compaction; this function stops on encountering
+/// such a value.
+pub fn collect_table_states(codewords: &[u32]) -> Vec<TableState> {
+    let mut states = Vec::new();
+    let num_codewords = codewords[0] as usize;
+    let mut current_mode: u32 = 0; // start in Alpha
+
+    let mut i = 1; // skip the symbol-length descriptor at index 0
+    while i < num_codewords && i < codewords.len() {
+        let code = codewords[i];
+        i += 1;
+
+        if code > PRE_TEXT_COMPACTION_MODE_LATCH {
+            break;
+        }
+
+        for base30_val in [code / 30, code % 30] {
+            let idx = (current_mode * 30 + base30_val) as usize;
+            states.push(TableState {
+                base30_val,
+                char: TEXT_MODE_TABLE[idx],
+                this_table: current_mode,
+                next_table: NEXT_MODE_TABLE[idx],
+                next_next_table: NEXT_NEXT_MODE_TABLE[idx],
+            });
+            current_mode = NEXT_MODE_TABLE[idx];
+        }
+    }
+
+    states
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {

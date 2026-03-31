@@ -15,8 +15,9 @@
  */
 
 use crate::{
-    BarcodeFormat, Binarizer, BinaryBitmap, DecodeHints, ImmutableReader, RXingResult,
+    BarcodeFormat, Binarizer, BinaryBitmap, DecodeHints, Exceptions, ImmutableReader, RXingResult,
     RXingResultMetadataType, RXingResultMetadataValue, Reader, WitnessData,
+    common::{DecoderRXingResult, DetectorRXingResult, Result}
 };
 
 use super::{decoder, detector::Detector};

@@ -169,7 +169,7 @@ impl RowReader for DXFilmEdgeReader<'_> {
     fn decodePattern(
         &self,
         rowNumber: u32,
-        next: &mut PatternView,
+        mut next: &mut PatternView,
         state: &mut Option<DecodingState>,
     ) -> Result<RXingResult> {
         // if (!state) {
@@ -226,7 +226,7 @@ impl RowReader for DXFilmEdgeReader<'_> {
 
         let minDataQuietZone: f32 = 0.5;
 
-        if !IsPattern(next, &DATA_START_PATTERN, minDataQuietZone) {
+        if !IsPattern(&mut next, &DATA_START_PATTERN, minDataQuietZone) {
             return Err(Exceptions::NOT_FOUND);
         }
 
@@ -246,7 +246,7 @@ impl RowReader for DXFilmEdgeReader<'_> {
         let mut dataBits = BitArray::default();
         while next.isValidWithN(1) && dataBits.get_size() < clock.dataLength() as usize {
             let modules = (next[0] as f32 / clock.moduleSize() + 0.5) as i32;
-            if (1..=20).contains(&modules) {
+            if modules >= 1 && modules <= 20 {
                 // even index means we are at a bar, otherwise at a space
                 dataBits.appendBits(
                     if next.index() % 2 == 0 {

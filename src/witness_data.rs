@@ -30,6 +30,26 @@ pub struct RowIndicatorVars {
 pub struct PolynomialResult {
     pub result: u32,
     pub result_quotient: u32,
+    pub should_be_zero: bool,
+}
+
+/// Represents a single character interpretation state in the PDF417 Text Compaction Mode.
+/// Mirrors the ZoKrates `TableState` struct in char_lookup.zok.
+///
+/// Encoding: next_next_table*2^16 + next_table*2^14 + this_table*2^12 + char*2^5 + base30_val
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[derive(Clone, Debug)]
+pub struct TableState {
+    /// 0-29: codeword value within the sub-mode (codeword / 30 or % 30)
+    pub base30_val: u32,
+    /// 0-127: ASCII character value (0 for mode-switch entries with no output char)
+    pub char: u32,
+    /// 0-3: current sub-mode (0=Alpha, 1=Lower, 2=Mixed, 3=Punctuation)
+    pub this_table: u32,
+    /// 0-3: next sub-mode after this entry
+    pub next_table: u32,
+    /// 0-3: sub-mode to return to after a temporary shift completes
+    pub next_next_table: u32,
 }
 
 /**
@@ -72,7 +92,6 @@ pub struct WitnessData {
 
     pub all_left_row_indicators: Option<Vec<u32>>,
 
-
     /// Codewords before error correction
     pub codewords: Option<Vec<u32>>,
 
@@ -81,6 +100,10 @@ pub struct WitnessData {
 
     /// Results from error correction polynomial evaluations
     pub polynomial_results: Option<Vec<PolynomialResult>>,
+
+    /// Character interpretation states from PDF417 Text Compaction Mode decoding.
+    /// Each text codeword (0-899) produces two entries: one for (codeword/30) and one for (codeword%30).
+    pub char_table_states: Option<Vec<TableState>>,
 }
 
 /**
@@ -128,6 +151,10 @@ pub struct FinalizedWitnessData {
 
     /// Results from error correction polynomial evaluations
     pub polynomial_results: Vec<PolynomialResult>,
+
+    /// Character interpretation states from PDF417 Text Compaction Mode decoding.
+    /// Each text codeword (0-899) produces two entries: one for (codeword/30) and one for (codeword%30).
+    pub char_table_states: Vec<TableState>,
 }
 
 impl FinalizedWitnessData {
@@ -146,6 +173,7 @@ impl FinalizedWitnessData {
         codewords: Vec<u32>,
         corrected_codewords: Vec<u32>,
         polynomial_results: Vec<PolynomialResult>,
+        char_table_states: Vec<TableState>,
     ) -> Self {
         assert_eq!(
             image.len(),
@@ -180,6 +208,7 @@ impl FinalizedWitnessData {
             codewords,
             corrected_codewords,
             polynomial_results,
+            char_table_states,
         }
     }
 
@@ -191,7 +220,10 @@ impl FinalizedWitnessData {
 
         let blocks = Option::ok_or(witness_data.blocks.clone(), "no blocks data")?;
 
-        let normalized_blocks = Option::ok_or(witness_data.normalized_blocks.clone(), "no normalized blocks data")?;
+        let normalized_blocks = Option::ok_or(
+            witness_data.normalized_blocks.clone(),
+            "no normalized blocks data",
+        )?;
 
         let row_count = Option::ok_or(witness_data.row_count.clone(), "no row count data")?;
 
@@ -206,7 +238,10 @@ impl FinalizedWitnessData {
         let row_indicators =
             Option::ok_or(witness_data.row_indicators.clone(), "no row indicator data")?;
 
-        let all_left_row_indicators = Option::ok_or(witness_data.all_left_row_indicators.clone(), "no all left row indicators data")?;
+        let all_left_row_indicators = Option::ok_or(
+            witness_data.all_left_row_indicators.clone(),
+            "no all left row indicators data",
+        )?;
 
         let codewords = Option::ok_or(witness_data.codewords.clone(), "no codewords data")?;
 
@@ -218,6 +253,11 @@ impl FinalizedWitnessData {
         let polynomial_results = Option::ok_or(
             witness_data.polynomial_results.clone(),
             "no polynomial results data",
+        )?;
+
+        let char_table_states = Option::ok_or(
+            witness_data.char_table_states.clone(),
+            "no char table states data",
         )?;
 
         Ok(Self {
@@ -235,6 +275,7 @@ impl FinalizedWitnessData {
             codewords,
             corrected_codewords,
             polynomial_results,
+            char_table_states,
         })
     }
 
@@ -311,6 +352,7 @@ impl WitnessData {
             codewords: None,
             corrected_codewords: None,
             polynomial_results: None,
+            char_table_states: None,
         }
     }
 
@@ -350,14 +392,9 @@ impl WitnessData {
     pub fn set_blocks(&mut self, blocks: Vec<Vec<[u32; 8]>>) {
         let flat: Vec<Vec<u32>> = blocks
             .iter()
-            .map(|column| {
-                column
-                    .iter()
-                    .flat_map(|bits| *bits)
-                    .collect()
-            })
+            .map(|column| column.iter().flat_map(|bits| *bits).collect())
             .collect();
-        
+
         self.blocks = Some(flat);
     }
 
@@ -386,6 +423,10 @@ impl WitnessData {
 
     pub fn set_polynomial_results(&mut self, polynomial_results: Vec<PolynomialResult>) {
         self.polynomial_results = Some(polynomial_results);
+    }
+
+    pub fn set_char_table_states(&mut self, char_table_states: Vec<TableState>) {
+        self.char_table_states = Some(char_table_states);
     }
 
     /**
@@ -500,21 +541,34 @@ mod tests {
     fn test_witness_finalization_flow() {
         let image = vec![vec![255; 2]; 2];
         let mut witness = WitnessData::new(2, 2, image);
-        
+
         // Test that finalization fails when fields are missing
         assert!(witness.finalize().is_err());
 
         // Populate required fields
         witness.set_binarized_image(BitMatrix::new(2, 2).unwrap());
         witness.set_barcode_metadata(30, 10, 2);
-        witness.set_row_indicators(RowIndicatorVars { 
-            l0: 1, l3: 1, l6: 1, q0: 1, q3: 1, q6: 1, r0: 1, r3: 1 
+        witness.set_row_indicators(RowIndicatorVars {
+            l0: 1,
+            l3: 1,
+            l6: 1,
+            q0: 1,
+            q3: 1,
+            q6: 1,
+            r0: 1,
+            r3: 1,
         });
         witness.set_codewords(vec![1, 2], vec![1, 2]);
-        witness.set_polynomial_results(vec![PolynomialResult { result: 0, result_quotient: 0 }]);
+        witness.set_polynomial_results(vec![PolynomialResult {
+            result: 0,
+            result_quotient: 0,
+            should_be_zero: true,
+        }]);
 
         // Verify successful finalization
-        let finalized = witness.finalize().expect("Should finalize with all fields set");
+        let finalized = witness
+            .finalize()
+            .expect("Should finalize with all fields set");
         assert_eq!(finalized.row_count, 30);
     }
 }

@@ -34,8 +34,7 @@ use crate::{
             AbstractRSSReaderTrait, DataCharacter, DataCharacterTrait, FinderPattern, rss_utils,
         },
     },
-    BarcodeFormat, Binarizer, DecodeHints, Exceptions, RXingResult, RXingResultMetadataType,
-    RXingResultMetadataValue, Reader, WitnessData,
+    WitnessData,
 };
 
 use super::{ExpandedPair, ExpandedRow, bit_array_builder, decoders::abstract_expanded_decoder};

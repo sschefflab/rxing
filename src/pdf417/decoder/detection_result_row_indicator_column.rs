@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-use encoding::all;
-
 use crate::pdf417::pdf_417_common;
 use crate::{RowIndicatorVars, WitnessData};
 

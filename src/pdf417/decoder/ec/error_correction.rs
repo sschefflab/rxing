@@ -15,9 +15,8 @@
  */
 
 use crate::{
-    Exceptions,
+    Exceptions, PolynomialResult, WitnessData,
     common::Result,
-    WitnessData,
     pdf417::{decoder::ec::ModulusGF, pdf_417_common::NUMBER_OF_CODEWORDS},
 };
 
@@ -63,16 +62,19 @@ pub fn decode(
         let eval_result = poly.evaluateAt(field.exp(i));
         let eval = eval_result.in_field;
         assert!(eval_result.over_integers % 929 == eval);
-        polynomial_results.push(PolynomialResult {
-            result: eval_result.in_field,
-            result_quotient: eval_result.over_integers / 929,
-        });
+        let mut should_be_zero = false;
         if i <= numECCodewords {
+            should_be_zero = true;
             S[(numECCodewords - i) as usize] = eval;
             if eval != 0 {
                 error = true;
             }
         }
+        polynomial_results.push(PolynomialResult {
+            result: eval_result.in_field,
+            result_quotient: eval_result.over_integers / 929,
+            should_be_zero,
+        });
     }
 
     // Write polynomial results to witness data if provided
