@@ -610,6 +610,12 @@ mod tests {
 
         // Populate required fields
         witness.set_binarized_image(BitMatrix::new(2, 2).unwrap());
+        witness.wb_image = Some(BitMatrix::new(2, 2).unwrap());
+        witness.wb_inds = Some(vec![0, 1]);
+        witness.garbage_image = Some(BitMatrix::new(2, 89).unwrap());
+        witness.garbage_inds = Some(vec![-1; 89]);
+        witness.set_blocks(vec![]);
+        witness.set_normalized_blocks(vec![]);
         witness.set_barcode_metadata(30, 10, 2);
         witness.set_row_indicators(RowIndicatorVars {
             l0: 1,
@@ -621,12 +627,14 @@ mod tests {
             r0: 1,
             r3: 1,
         });
+        witness.set_all_left_row_indicators(vec![]);
         witness.set_codewords(vec![1, 2], vec![1, 2]);
         witness.set_polynomial_results(vec![PolynomialResult {
             result: 0,
             result_quotient: 0,
             should_be_zero: true,
         }]);
+        witness.set_char_table_states(vec![]);
 
         // Verify successful finalization
         let finalized = witness
