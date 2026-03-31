@@ -144,6 +144,8 @@ pub struct FinalizedWitnessData {
     // How many times index i appears in wb_inds. Should be the same length as wb_inds.
     pub wb_ind_counts: Vec<u32>,
 
+    pub wb_lookups: Vec<[u128; 6]>,
+
     // The "garbage" rows of the image that will not decode
     // Will always have exactly 89 rows. Padded with zero rows.
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_bitmatrix"))]
@@ -153,6 +155,7 @@ pub struct FinalizedWitnessData {
     pub garbage_inds: Vec<i32>,
     // How many zero rows appear in garbage_image
     pub num_zero_rows: u32,
+    pub garbage_lookups: Vec<[u128; 6]>,
 
     /// Lengths of blocks of contiguous pixels of the same color
     pub blocks: Vec<Vec<u32>>,
@@ -226,6 +229,8 @@ impl FinalizedWitnessData {
             .map(|target| wb_inds.iter().filter(|&&x| x == *target).count() as u32)
             .collect();
         let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
+        let wb_lookups = Self::compute_lookups(&wb_image, 27);
+        let garbage_lookups = Self::compute_lookups(&garbage_image, 1080);
 
         Self {
             width,
@@ -235,9 +240,11 @@ impl FinalizedWitnessData {
             wb_image,
             wb_inds,
             wb_ind_counts,
+            wb_lookups,
             garbage_image,
             garbage_inds,
             num_zero_rows,
+            garbage_lookups,
             blocks,
             normalized_blocks,
             row_count,
@@ -250,6 +257,75 @@ impl FinalizedWitnessData {
             polynomial_results,
             char_table_states,
         }
+    }
+
+    fn compute_lookups(image: &BitMatrix, B: usize) -> Vec<[u128; 6]> {
+        const L: usize = 10;
+        let width = image.width() as usize;
+        let height = image.height() as usize;
+        let mut result = Vec::new();
+
+        for row in 0..height {
+            let num_chunks = width.div_ceil(L);
+            for chunk in 0..num_chunks {
+                let start_col = chunk * L;
+                let chunk_len = L.min(width - start_col);
+
+                // Take chunk_len pixels and compute int as a binary string
+                let mut int_val: u128 = 0;
+                let mut pixels = [false; L];
+                for i in 0..chunk_len {
+                    let px = image.get((start_col + i) as u32, row as u32);
+                    pixels[i] = px;
+                    if px {
+                        int_val |= 1 << i;
+                    }
+                }
+
+                // Compute blocks: lengths of runs of the same color
+                let mut blocks_vec: Vec<u128> = Vec::new();
+                let mut current_run: u128 = 1;
+                for i in 1..chunk_len {
+                    if pixels[i] == pixels[i - 1] {
+                        current_run += 1;
+                    } else {
+                        blocks_vec.push(current_run);
+                        current_run = 1;
+                    }
+                }
+                blocks_vec.push(current_run);
+
+                // Encode blocks base B (big-endian: first block is most significant)
+                let mut blocks_base_b: u128 = 0;
+                for &b in &blocks_vec {
+                    blocks_base_b = blocks_base_b * B as u128 + b;
+                }
+
+                // r = last block length
+                let r = *blocks_vec.last().unwrap();
+
+                // nb = number of blocks
+                let nb = blocks_vec.len() as u128;
+
+                // odd = nb % 2 == 1
+                let odd = nb % 2;
+
+                // block = 1 if last block is black, 0 if white
+                // The last block has the same color as the first pixel when (nb-1) is even,
+                // and the opposite color when (nb-1) is odd.
+                let first_is_black = pixels[0];
+                let last_is_black = if (nb - 1) % 2 == 0 {
+                    first_is_black
+                } else {
+                    !first_is_black
+                };
+                let block: u128 = if last_is_black { 1 } else { 0 };
+
+                result.push([int_val, blocks_base_b, r, nb, odd, block]);
+            }
+        }
+
+        result
     }
 
     pub fn from_witness_data(witness_data: &WitnessData) -> Result<Self, String> {
@@ -307,23 +383,15 @@ impl FinalizedWitnessData {
             "no char table states data",
         )?;
 
-        let wb_ind_counts: Vec<u32> = wb_inds
-            .iter()
-            .map(|target| wb_inds.iter().filter(|&&x| x == *target).count() as u32)
-            .collect();
-        let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
-
-        Ok(Self {
-            width: witness_data.width,
-            height: witness_data.height,
-            image: witness_data.image.clone(),
+        Ok(Self::new(
+            witness_data.width,
+            witness_data.height,
+            witness_data.image.clone(),
             binarized_image,
             wb_image,
             wb_inds,
-            wb_ind_counts,
             garbage_image,
             garbage_inds,
-            num_zero_rows,
             blocks,
             normalized_blocks,
             row_count,
@@ -335,7 +403,7 @@ impl FinalizedWitnessData {
             corrected_codewords,
             polynomial_results,
             char_table_states,
-        })
+        ))
     }
 
     /**
