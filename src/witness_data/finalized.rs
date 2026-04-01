@@ -5,13 +5,16 @@
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use crate::common::BitMatrix;
-use super::block_ops::{compute_blocks, compute_lookups_and_decomps, compute_normalized_blocks};
 use super::accumulator::WitnessData;
-use super::types::{
-    PolynomialResult, RowIndicatorVars, TableState,
-    EC_TABLE_STATE, PAD_TABLE_STATE, SLD_TABLE_STATE, ZERO_TABLE_STATE,
+use super::block_ops::{
+    compute_blocks, compute_ext_codewords, compute_lookups_and_decomps, compute_normalized_blocks,
+    compute_words, compute_words_with_dummies,
 };
+use super::types::{
+    EC_TABLE_STATE, PAD_TABLE_STATE, PolynomialResult, RowIndicatorVars, SLD_TABLE_STATE,
+    TableState, ZERO_TABLE_STATE,
+};
+use crate::common::BitMatrix;
 
 #[cfg(feature = "serde")]
 use super::serde_support::serialize_bitmatrix;
@@ -143,6 +146,22 @@ pub struct FinalizedWitnessData {
 
     /// The final decoded text of the barcode, represented as ASCII integer values.
     pub chars: Vec<u8>,
+
+    /// Raw words computed from wb_normalized_blocks: each [u32; 8] block smushed into a u32.
+    /// Shape: [R][WB_CW] matching wb_normalized_blocks.
+    pub words: Vec<Vec<u32>>,
+
+    /// Well-behaved words with dummies zeroed out. Shape: [R][WB_CW].
+    ///   - Duplicate rows (per wb_inds) are entirely zeroed out.
+    ///   - Words that don't decode exactly and aren't START/STOP are replaced with 0.
+    pub words_with_dummies: Vec<Vec<u32>>,
+
+    /// All codewords (GF(929) elements) in the barcode, plus 919 for start, stop, and garbage.
+    /// Shape: [R][WB_CW], same as words_with_dummies.
+    ///   - words_with_dummies == 0 (dummy/garbage) → 919
+    ///   - START or STOP word → 919
+    ///   - valid data word → codeword index 0–928 from the PDF417 lookup table
+    pub ext_codewords: Vec<Vec<u32>>,
 }
 
 impl FinalizedWitnessData {
@@ -203,6 +222,10 @@ impl FinalizedWitnessData {
         let garbage_blocks = compute_blocks(&garbage_image, G_NB);
         let garbage_normalized_blocks = compute_normalized_blocks(&garbage_blocks);
 
+        let words = compute_words(&wb_normalized_blocks);
+        let words_with_dummies = compute_words_with_dummies(&wb_normalized_blocks, &wb_inds);
+        let ext_codewords = compute_ext_codewords(&wb_normalized_blocks, &words_with_dummies);
+
         Self {
             width,
             height,
@@ -232,6 +255,9 @@ impl FinalizedWitnessData {
             polynomial_results,
             char_table_states,
             chars,
+            words,
+            words_with_dummies,
+            ext_codewords,
         }
     }
 
@@ -339,21 +365,6 @@ impl FinalizedWitnessData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::BitMatrix;
-
-    fn make_bitmatrix(rows: &[&[bool]]) -> BitMatrix {
-        let height = rows.len();
-        let width = rows.first().map_or(0, |r| r.len());
-        let mut bm = BitMatrix::new(width as u32, height as u32).unwrap();
-        for (y, row) in rows.iter().enumerate() {
-            for (x, &px) in row.iter().enumerate() {
-                if px {
-                    bm.set(x as u32, y as u32);
-                }
-            }
-        }
-        bm
-    }
 
     // -------------------------------------------------------------------------
     // add_dummy_table_states
