@@ -1108,6 +1108,78 @@ mod tests {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // compute_normalized_blocks
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_normalized_blocks_sum_is_17() {
+        // sampleBitCounts runs exactly MODULES_IN_CODEWORD=17 iterations, each
+        // incrementing one slot, so every normalized block must sum to 17.
+        let blocks = vec![vec![3u32, 1, 2, 4, 1, 3, 2, 1]];
+        let normalized = FinalizedWitnessData::compute_normalized_blocks(&blocks);
+        assert_eq!(normalized.len(), 1);
+        assert_eq!(normalized[0].len(), 1);
+        let sum: u32 = normalized[0][0].iter().sum();
+        assert_eq!(sum, 17);
+    }
+
+    #[test]
+    fn test_normalized_blocks_zero_window_filtered() {
+        // A window with any zero element must be dropped entirely.
+        let blocks = vec![vec![3u32, 0, 2, 4, 1, 3, 2, 1]];
+        let normalized = FinalizedWitnessData::compute_normalized_blocks(&blocks);
+        assert_eq!(normalized[0].len(), 0);
+    }
+
+    #[test]
+    fn test_normalized_blocks_partial_chunk_ignored() {
+        // chunks_exact(8) ignores trailing elements that don't fill a full window.
+        let blocks = vec![vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9]]; // 9 values → 1 window + 1 leftover
+        let normalized = FinalizedWitnessData::compute_normalized_blocks(&blocks);
+        assert_eq!(normalized[0].len(), 1);
+        let sum: u32 = normalized[0][0].iter().sum();
+        assert_eq!(sum, 17);
+    }
+
+    #[test]
+    fn test_normalized_blocks_multiple_windows() {
+        // Two complete 8-windows in one row, both all-nonzero.
+        let blocks = vec![vec![1u32, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2]];
+        let normalized = FinalizedWitnessData::compute_normalized_blocks(&blocks);
+        assert_eq!(normalized[0].len(), 2);
+        for window in &normalized[0] {
+            assert_eq!(window.iter().sum::<u32>(), 17);
+        }
+    }
+
+    #[test]
+    fn test_normalized_blocks_multiple_rows() {
+        // Each row is handled independently; zero windows are per-row.
+        let blocks = vec![
+            vec![1u32, 2, 3, 4, 5, 6, 7, 8], // 1 nonzero window
+            vec![1u32, 0, 1, 1, 1, 1, 1, 1], // zero in window → filtered
+            vec![],                            // empty row
+        ];
+        let normalized = FinalizedWitnessData::compute_normalized_blocks(&blocks);
+        assert_eq!(normalized.len(), 3);
+        assert_eq!(normalized[0].len(), 1);
+        assert_eq!(normalized[1].len(), 0);
+        assert_eq!(normalized[2].len(), 0);
+    }
+
+    #[test]
+    fn test_normalized_blocks_mixed_windows() {
+        // Two windows: first has a zero (filtered), second is all-nonzero.
+        let blocks = vec![vec![
+            1u32, 2, 0, 4, 5, 6, 7, 8, // window 0: has a zero
+            1, 1, 1, 1, 1, 1, 1, 1,    // window 1: all nonzero
+        ]];
+        let normalized = FinalizedWitnessData::compute_normalized_blocks(&blocks);
+        assert_eq!(normalized[0].len(), 1); // only window 1 survives
+        assert_eq!(normalized[0][0].iter().sum::<u32>(), 17);
+    }
+
     #[test]
     fn test_witness_data_creation() {
         // Create a simple 4x4 test image as 2D array
