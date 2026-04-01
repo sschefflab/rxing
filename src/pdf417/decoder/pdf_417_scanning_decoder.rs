@@ -933,8 +933,12 @@ fn decodeCodewords(
     }
 
     let numECCodewords = 1 << (ecLevel + 1);
-    let correctedErrorsCount =
-        correctErrors(codewords, erasures, numECCodewords, witness_data.as_deref_mut())?;
+    let correctedErrorsCount = correctErrors(
+        codewords,
+        erasures,
+        numECCodewords,
+        witness_data.as_deref_mut(),
+    )?;
     verifyCodewordCount(codewords, numECCodewords)?;
 
     // Decode the codewords
@@ -944,7 +948,11 @@ fn decodeCodewords(
     decoderRXingResult.setErasures(erasures.len());
 
     if let Some(wd) = witness_data {
-        let chars: Vec<u32> = decoderRXingResult.getText().chars().map(|c| c as u32).collect();
+        let chars: Vec<u8> = decoderRXingResult
+            .getText()
+            .chars()
+            .map(|c| c as u8)
+            .collect();
         wd.set_chars(chars);
     }
 

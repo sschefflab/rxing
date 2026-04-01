@@ -193,7 +193,7 @@ pub struct WitnessData {
     pub char_table_states: Option<Vec<TableState>>,
 
     /// The final decoded text of the barcode, represented as ASCII integer values.
-    pub chars: Option<Vec<u32>>,
+    pub chars: Option<Vec<u8>>,
 }
 
 /**
@@ -266,7 +266,7 @@ pub struct FinalizedWitnessData {
     pub char_table_states: Vec<TableState>,
 
     /// The final decoded text of the barcode, represented as ASCII integer values.
-    pub chars: Vec<u32>,
+    pub chars: Vec<u8>,
 }
 
 impl FinalizedWitnessData {
@@ -290,7 +290,7 @@ impl FinalizedWitnessData {
         corrected_codewords: Vec<u32>,
         polynomial_results: Vec<PolynomialResult>,
         char_table_states: Vec<TableState>,
-        chars: Vec<u32>,
+        chars: Vec<u8>,
     ) -> Self {
         assert_eq!(
             image.len(),
@@ -588,7 +588,7 @@ impl WitnessData {
         self.char_table_states = Some(char_table_states);
     }
 
-    pub fn set_chars(&mut self, chars: Vec<u32>) {
+    pub fn set_chars(&mut self, chars: Vec<u8>) {
         self.chars = Some(chars);
     }
 
