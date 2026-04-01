@@ -1,3 +1,23 @@
+// Custom serialization for Vec<F> where F: PrimeField - convert each field element to a
+// decimal string. ark field types don't implement serde::Serialize, so we represent each
+// element as its canonical decimal integer string.
+pub fn serialize_fr_vec<F, S>(
+    elems: &[F],
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    F: ark_ff::PrimeField,
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeSeq;
+
+    let mut seq = serializer.serialize_seq(Some(elems.len()))?;
+    for elem in elems {
+        seq.serialize_element(&elem.into_bigint().to_string())?;
+    }
+    seq.end()
+}
+
 // Custom serialization for BitMatrix - convert to 2D array of 0s and 1s
 // Stored as rows[y][x] where each value is 0 (white) or 1 (black)
 pub fn serialize_bitmatrix<S>(

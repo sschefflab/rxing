@@ -2,19 +2,21 @@
  * FinalizedWitnessData: immutable, fully-populated witness data ready for ZK proof generation.
  */
 
+use ark_bls12_381::Fr;
+use ark_ff::{FftField, PrimeField};
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use crate::common::BitMatrix;
-use super::block_ops::{compute_blocks, compute_lookups_and_decomps, compute_normalized_blocks};
 use super::accumulator::WitnessData;
+use super::block_ops::{compute_blocks, compute_lookups_and_decomps, compute_normalized_blocks};
 use super::types::{
-    PolynomialResult, RowIndicatorVars, TableState,
-    EC_TABLE_STATE, PAD_TABLE_STATE, SLD_TABLE_STATE, ZERO_TABLE_STATE,
+    EC_TABLE_STATE, PAD_TABLE_STATE, PolynomialResult, RowIndicatorVars, SLD_TABLE_STATE,
+    TableState, ZERO_TABLE_STATE,
 };
+use crate::common::BitMatrix;
 
 #[cfg(feature = "serde")]
-use super::serde_support::serialize_bitmatrix;
+use super::serde_support::{serialize_bitmatrix, serialize_fr_vec};
 
 const WB_DECOMP: usize = 2;
 const G_DECOMP: usize = 4;
@@ -66,8 +68,9 @@ fn add_dummy_table_states(
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", serde(bound(serialize = "")))]
 #[derive(Clone, Debug)]
-pub struct FinalizedWitnessData {
+pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     /// The width of the image in pixels
     pub width: usize,
 
@@ -120,6 +123,11 @@ pub struct FinalizedWitnessData {
     pub garbage_blocks: Vec<Vec<u32>>,
     pub garbage_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
+    // coefficients of polynomials showing that gcd(garbage, valid_words) = 1
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
+    pub garbage_disjoint_set_poly_f: Vec<F>,
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
+    pub garbage_disjoint_set_poly_g: Vec<F>,
     pub row_count: u32,
     pub column_count: u32,
     pub ec_level: u32,
@@ -145,7 +153,7 @@ pub struct FinalizedWitnessData {
     pub chars: Vec<u8>,
 }
 
-impl FinalizedWitnessData {
+impl FinalizedWitnessData<Fr> {
     pub fn new(
         width: usize,
         height: usize,
@@ -222,6 +230,8 @@ impl FinalizedWitnessData {
             wb_normalized_blocks,
             garbage_blocks,
             garbage_normalized_blocks,
+            garbage_disjoint_set_poly_f: Vec::new(),
+            garbage_disjoint_set_poly_g: Vec::new(),
             row_count,
             column_count,
             ec_level,

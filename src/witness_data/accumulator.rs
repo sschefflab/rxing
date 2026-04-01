@@ -4,6 +4,7 @@
 
 use crate::common::BitMatrix;
 use super::types::{PolynomialResult, RowIndicatorVars, TableState};
+use ark_bls12_381::Fr;
 use super::finalized::FinalizedWitnessData;
 
 /**
@@ -182,7 +183,7 @@ impl WitnessData {
     /**
      * Makes sure that all optional fields have data in them.
      */
-    pub fn finalize(&self) -> Result<FinalizedWitnessData, String> {
+    pub fn finalize(&self) -> Result<FinalizedWitnessData<Fr>, String> {
         FinalizedWitnessData::from_witness_data(self)
     }
 

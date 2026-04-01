@@ -13,6 +13,7 @@
 
 pub mod accumulator;
 pub mod block_ops;
+pub mod disjoint_set_polynomials;
 pub mod finalized;
 pub mod polynomial_bezout;
 pub mod types;
