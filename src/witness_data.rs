@@ -63,17 +63,54 @@ fn get_word(block: &[u32; 8]) -> u32 {
     block.iter().fold(0u32, |acc, &b| acc * 10 + b)
 }
 
-/// Returns true if the normalized block decodes exactly to a valid PDF417 codeword
-/// (i.e. without falling back to closest-match).
-fn decodes_exactly(block: &[u32; 8]) -> bool {
-    use crate::pdf417::pdf_417_common;
+/// Converts a normalized 8-element block to its binary symbol value (same logic as
+/// `getBitValue` in pdf_417_codeword_decoder).
+fn bit_value_of_block(block: &[u32; 8]) -> u32 {
     let mut result: u64 = 0;
     for (i, &mbc) in block.iter().enumerate() {
         for _ in 0..mbc {
             result = (result << 1) | u64::from(i % 2 == 0);
         }
     }
-    pdf_417_common::getCodeword(result as u32) != -1
+    result as u32
+}
+
+/// Returns true if the normalized block decodes exactly to a valid PDF417 codeword
+/// (i.e. without falling back to closest-match).
+fn decodes_exactly(block: &[u32; 8]) -> bool {
+    use crate::pdf417::pdf_417_common;
+    pdf_417_common::getCodeword(bit_value_of_block(block)) != -1
+}
+
+/// Returns the ext_codeword for a (block, word_with_dummy) pair.
+///   - word == 0, START_WORD, or STOP_WORD → 919 (dummy)
+///   - otherwise → the PDF417 codeword index (0–928) from the lookup table
+fn ext_codeword_of(block: &[u32; 8], word: u32) -> u32 {
+    use crate::pdf417::pdf_417_common;
+    if word == 0 || word == START_WORD || word == STOP_WORD {
+        return 919;
+    }
+    let cw = pdf_417_common::getCodeword(bit_value_of_block(block));
+    debug_assert!(cw != -1, "ext_codeword_of called on non-decodable word {word}");
+    cw as u32
+}
+
+/// Computes ext_codewords[R][WB_CW] from normalized_blocks and words_with_dummies.
+fn compute_ext_codewords(
+    normalized_blocks: &[Vec<[u32; 8]>],
+    words_with_dummies: &[Vec<u32>],
+) -> Vec<Vec<u32>> {
+    normalized_blocks
+        .iter()
+        .zip(words_with_dummies.iter())
+        .map(|(row_blocks, row_words)| {
+            row_blocks
+                .iter()
+                .zip(row_words.iter())
+                .map(|(block, &word)| ext_codeword_of(block, word))
+                .collect()
+        })
+        .collect()
 }
 
 /// Computes raw words from normalized_blocks: each [u32; 8] → single u32 word.
@@ -340,6 +377,13 @@ pub struct FinalizedWitnessData {
     ///   - Duplicate rows (per wb_inds) are entirely zeroed out.
     ///   - Words that don't decode exactly and aren't START/STOP are replaced with 0.
     pub words_with_dummies: Vec<Vec<u32>>,
+
+    /// All codewords (GF(929) elements) in the barcode, plus 919 for start, stop, and garbage.
+    /// Shape: [R][WB_CW], same as words_with_dummies.
+    ///   - words_with_dummies == 0 (dummy/garbage) → 919
+    ///   - START or STOP word → 919
+    ///   - valid data word → codeword index 0–928 from the PDF417 lookup table
+    pub ext_codewords: Vec<Vec<u32>>,
 }
 
 impl FinalizedWitnessData {
@@ -390,6 +434,7 @@ impl FinalizedWitnessData {
         let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
         let words = compute_words(&normalized_blocks);
         let words_with_dummies = compute_words_with_dummies(&normalized_blocks, &wb_inds);
+        let ext_codewords = compute_ext_codewords(&normalized_blocks, &words_with_dummies);
 
         Self {
             width,
@@ -416,6 +461,7 @@ impl FinalizedWitnessData {
             chars,
             words,
             words_with_dummies,
+            ext_codewords,
         }
     }
 
@@ -485,6 +531,7 @@ impl FinalizedWitnessData {
         let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
         let words = compute_words(&normalized_blocks);
         let words_with_dummies = compute_words_with_dummies(&normalized_blocks, &wb_inds);
+        let ext_codewords = compute_ext_codewords(&normalized_blocks, &words_with_dummies);
 
         Ok(Self {
             width: witness_data.width,
@@ -511,6 +558,7 @@ impl FinalizedWitnessData {
             chars,
             words,
             words_with_dummies,
+            ext_codewords,
         })
     }
 
