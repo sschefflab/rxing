@@ -68,7 +68,7 @@ pub fn getDecodedValueAndNormalizedBlocks(moduleBitCount: &[u32]) -> (u32, [u32;
     (getClosestDecodedValue(moduleBitCount) as u32, sampledBitCounts)
 }
 
-fn sampleBitCounts(moduleBitCount: &[u32]) -> [u32; 8] {
+pub fn sampleBitCounts(moduleBitCount: &[u32]) -> [u32; 8] {
     let bitCountSum: u32 = moduleBitCount.iter().sum(); //MathUtils.sum(moduleBitCount);
     let mut result = [0; pdf_417_common::BARS_IN_MODULE as usize];
     let mut bitCountIndex = 0;
