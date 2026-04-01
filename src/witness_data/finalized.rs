@@ -17,6 +17,7 @@ use super::types::{
     TableState, ZERO_TABLE_STATE,
 };
 use crate::common::BitMatrix;
+use crate::disjoint_set_polynomials::show_disjoint_from_valid_words;
 
 #[cfg(feature = "serde")]
 use super::serde_support::{serialize_bitmatrix, serialize_fr_vec};
@@ -155,10 +156,6 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     /// The final decoded text of the barcode, represented as ASCII integer values.
     pub chars: Vec<u8>,
 
-    /// Raw words computed from wb_normalized_blocks: each [u32; 8] block smushed into a u32.
-    /// Shape: [R][WB_CW] matching wb_normalized_blocks.
-    pub words: Vec<Vec<u32>>,
-
     /// Well-behaved words with dummies zeroed out. Shape: [R][WB_CW].
     ///   - Duplicate rows (per wb_inds) are entirely zeroed out.
     ///   - Words that don't decode exactly and aren't START/STOP are replaced with 0.
@@ -230,7 +227,10 @@ impl FinalizedWitnessData<Fr> {
         let garbage_blocks = compute_blocks(&garbage_image, G_NB);
         let garbage_normalized_blocks = compute_normalized_blocks(&garbage_blocks);
 
-        let words = compute_words(&wb_normalized_blocks);
+        let garbage_words = compute_words(&garbage_normalized_blocks);
+        let (garbage_disjoint_set_poly_f, garbage_disjoint_set_poly_g) =
+            show_disjoint_from_valid_words(garbage_words);
+
         let words_with_dummies = compute_words_with_dummies(&wb_normalized_blocks, &wb_inds);
         let ext_codewords = compute_ext_codewords(&wb_normalized_blocks, &words_with_dummies);
 
@@ -253,8 +253,8 @@ impl FinalizedWitnessData<Fr> {
             wb_normalized_blocks,
             garbage_blocks,
             garbage_normalized_blocks,
-            garbage_disjoint_set_poly_f: Vec::new(),
-            garbage_disjoint_set_poly_g: Vec::new(),
+            garbage_disjoint_set_poly_f,
+            garbage_disjoint_set_poly_g,
             row_count,
             column_count,
             ec_level,
@@ -265,7 +265,6 @@ impl FinalizedWitnessData<Fr> {
             polynomial_results,
             char_table_states,
             chars,
-            words,
             words_with_dummies,
             ext_codewords,
         }
