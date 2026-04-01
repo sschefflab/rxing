@@ -2,6 +2,8 @@
  * FinalizedWitnessData: immutable, fully-populated witness data ready for ZK proof generation.
  */
 
+use ark_bls12_381::Fr;
+use ark_ff::{FftField, PrimeField};
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
@@ -15,9 +17,10 @@ use super::types::{
     TableState, ZERO_TABLE_STATE,
 };
 use crate::common::BitMatrix;
+use crate::disjoint_set_polynomials::show_disjoint_from_valid_words;
 
 #[cfg(feature = "serde")]
-use super::serde_support::serialize_bitmatrix;
+use super::serde_support::{serialize_bitmatrix, serialize_fr_vec};
 
 const WB_DECOMP: usize = 2;
 const G_DECOMP: usize = 4;
@@ -69,8 +72,9 @@ fn add_dummy_table_states(
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", serde(bound(serialize = "")))]
 #[derive(Clone, Debug)]
-pub struct FinalizedWitnessData {
+pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     /// The width of the image in pixels
     pub width: usize,
 
@@ -120,8 +124,20 @@ pub struct FinalizedWitnessData {
     pub wb_blocks: Vec<Vec<u32>>,
     pub wb_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
+    // coefficients of polynomials showing that the stuff we throw out from the well-behaved image is disjoint from valid words
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
+    pub wb_disjoint_set_poly_f: Vec<F>,
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
+    pub wb_disjoint_set_poly_g: Vec<F>,
+
     pub garbage_blocks: Vec<Vec<u32>>,
     pub garbage_normalized_blocks: Vec<Vec<[u32; 8]>>,
+
+    // coefficients of polynomials showing that gcd(garbage, valid_words) = 1
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
+    pub garbage_disjoint_set_poly_f: Vec<F>,
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
+    pub garbage_disjoint_set_poly_g: Vec<F>,
 
     pub row_count: u32,
     pub column_count: u32,
@@ -147,10 +163,6 @@ pub struct FinalizedWitnessData {
     /// The final decoded text of the barcode, represented as ASCII integer values.
     pub chars: Vec<u8>,
 
-    /// Raw words computed from wb_normalized_blocks: each [u32; 8] block smushed into a u32.
-    /// Shape: [R][WB_CW] matching wb_normalized_blocks.
-    pub words: Vec<Vec<u32>>,
-
     /// Well-behaved words with dummies zeroed out. Shape: [R][WB_CW].
     ///   - Duplicate rows (per wb_inds) are entirely zeroed out.
     ///   - Words that don't decode exactly and aren't START/STOP are replaced with 0.
@@ -164,7 +176,7 @@ pub struct FinalizedWitnessData {
     pub ext_codewords: Vec<Vec<u32>>,
 }
 
-impl FinalizedWitnessData {
+impl FinalizedWitnessData<Fr> {
     pub fn new(
         width: usize,
         height: usize,
@@ -222,9 +234,15 @@ impl FinalizedWitnessData {
         let garbage_blocks = compute_blocks(&garbage_image, G_NB);
         let garbage_normalized_blocks = compute_normalized_blocks(&garbage_blocks);
 
-        let words = compute_words(&wb_normalized_blocks);
-        let words_with_dummies = compute_words_with_dummies(&wb_normalized_blocks, &wb_inds);
+        let garbage_words = compute_words(&garbage_normalized_blocks);
+        let (garbage_disjoint_set_poly_f, garbage_disjoint_set_poly_g) =
+            show_disjoint_from_valid_words(garbage_words.into_iter().flatten().collect());
+
+        let (words_with_dummies, wb_garbage) =
+            compute_words_with_dummies(&wb_normalized_blocks, &wb_inds);
         let ext_codewords = compute_ext_codewords(&wb_normalized_blocks, &words_with_dummies);
+        let (wb_disjoint_set_poly_f, wb_disjoint_set_poly_g) =
+            show_disjoint_from_valid_words::<Fr>(wb_garbage);
 
         Self {
             width,
@@ -243,8 +261,12 @@ impl FinalizedWitnessData {
             g_baseB_decomps,
             wb_blocks,
             wb_normalized_blocks,
+            wb_disjoint_set_poly_f,
+            wb_disjoint_set_poly_g,
             garbage_blocks,
             garbage_normalized_blocks,
+            garbage_disjoint_set_poly_f,
+            garbage_disjoint_set_poly_g,
             row_count,
             column_count,
             ec_level,
@@ -255,7 +277,6 @@ impl FinalizedWitnessData {
             polynomial_results,
             char_table_states,
             chars,
-            words,
             words_with_dummies,
             ext_codewords,
         }

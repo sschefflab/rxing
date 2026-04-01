@@ -210,12 +210,14 @@ pub fn compute_words(normalized_blocks: &[Vec<[u32; 8]>]) -> Vec<Vec<u32>> {
 ///   - Duplicate rows (per wb_inds) are entirely zeroed out.
 ///   - In non-duplicate rows: words that don't decode exactly and aren't START/STOP → 0.
 ///   - START/STOP words and exact-decode words are kept as-is.
+/// Returns (words_with_dummies, garbage_words)
 pub fn compute_words_with_dummies(
     normalized_blocks: &[Vec<[u32; 8]>],
     wb_inds: &[u32],
-) -> Vec<Vec<u32>> {
+) -> (Vec<Vec<u32>>, Vec<u32>) {
     let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
-    normalized_blocks
+    let mut garbage = Vec::new();
+    let words_with_dummies = normalized_blocks
         .iter()
         .zip(wb_inds.iter())
         .map(|(row, &orig_idx)| {
@@ -229,13 +231,15 @@ pub fn compute_words_with_dummies(
                         if word == START_WORD || word == STOP_WORD || decodes_exactly(block) {
                             word
                         } else {
+                            garbage.push(word);
                             0
                         }
                     })
                     .collect()
             }
         })
-        .collect()
+        .collect();
+    (words_with_dummies, garbage)
 }
 
 /// For each row of blocks, splits into non-overlapping windows of 8 and runs

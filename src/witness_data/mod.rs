@@ -11,13 +11,16 @@
  * - block_ops:  image block operations (run-length encoding, lookup table computation)
  */
 
-pub mod types;
 pub mod accumulator;
-pub mod finalized;
 pub mod block_ops;
+pub mod disjoint_set_polynomials;
+pub mod finalized;
+pub mod polynomial_bezout;
+pub mod types;
+
 #[cfg(feature = "serde")]
 pub(crate) mod serde_support;
 
-pub use types::{PolynomialResult, RowIndicatorVars, TableState};
 pub use accumulator::WitnessData;
 pub use finalized::FinalizedWitnessData;
+pub use types::{PolynomialResult, RowIndicatorVars, TableState};
