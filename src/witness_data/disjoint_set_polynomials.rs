@@ -327,9 +327,9 @@ const VALID_WORDS: [u64; 2789] = [
 /// gcd(a, t) = 1 iff a_set and VALID_WORDS share no common roots, i.e. every element
 /// of a_set is a valid codeword.
 pub fn show_disjoint_from_valid_words<F: FftField + From<u64>>(
-    a_set: Vec<Vec<u32>>,
+    a_set: Vec<u32>,
 ) -> (Vec<F>, Vec<F>) {
-    let a_set_f: Vec<F> = a_set.iter().flatten().map(|&v| F::from(v as u64)).collect();
+    let a_set_f: Vec<F> = a_set.iter().map(|&v| F::from(v as u64)).collect();
     let valid_words_f: Vec<F> = VALID_WORDS.iter().map(|&w| F::from(w)).collect();
     let t = poly_from_roots(&valid_words_f);
     let a = poly_from_roots(&a_set_f);

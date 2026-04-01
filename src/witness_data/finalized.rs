@@ -124,6 +124,12 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub wb_blocks: Vec<Vec<u32>>,
     pub wb_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
+    // coefficients of polynomials showing that the stuff we throw out from the well-behaved image is disjoint from valid words
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
+    pub wb_disjoint_set_poly_f: Vec<F>,
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
+    pub wb_disjoint_set_poly_g: Vec<F>,
+
     pub garbage_blocks: Vec<Vec<u32>>,
     pub garbage_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
@@ -132,6 +138,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub garbage_disjoint_set_poly_f: Vec<F>,
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
     pub garbage_disjoint_set_poly_g: Vec<F>,
+
     pub row_count: u32,
     pub column_count: u32,
     pub ec_level: u32,
@@ -229,10 +236,13 @@ impl FinalizedWitnessData<Fr> {
 
         let garbage_words = compute_words(&garbage_normalized_blocks);
         let (garbage_disjoint_set_poly_f, garbage_disjoint_set_poly_g) =
-            show_disjoint_from_valid_words(garbage_words);
+            show_disjoint_from_valid_words(garbage_words.into_iter().flatten().collect());
 
-        let words_with_dummies = compute_words_with_dummies(&wb_normalized_blocks, &wb_inds);
+        let (words_with_dummies, wb_garbage) =
+            compute_words_with_dummies(&wb_normalized_blocks, &wb_inds);
         let ext_codewords = compute_ext_codewords(&wb_normalized_blocks, &words_with_dummies);
+        let (wb_disjoint_set_poly_f, wb_disjoint_set_poly_g) =
+            show_disjoint_from_valid_words::<Fr>(wb_garbage);
 
         Self {
             width,
@@ -251,6 +261,8 @@ impl FinalizedWitnessData<Fr> {
             g_baseB_decomps,
             wb_blocks,
             wb_normalized_blocks,
+            wb_disjoint_set_poly_f,
+            wb_disjoint_set_poly_g,
             garbage_blocks,
             garbage_normalized_blocks,
             garbage_disjoint_set_poly_f,
