@@ -53,6 +53,88 @@ pub struct TableState {
     pub next_next_table: u32,
 }
 
+// A dummy table state used before decoding actually begins
+const ZERO_TABLE_STATE: TableState = TableState {
+    base30_val: 0,
+    char: 0,
+    this_table: 0,
+    next_table: 0,
+    next_next_table: 0,
+};
+
+// A pad table state that may be present between data and error correction codewords
+const PAD_TABLE_STATE: TableState = TableState {
+    base30_val: 0,
+    char: 32,
+    this_table: 0,
+    next_table: 0,
+    next_next_table: 0,
+};
+
+// A table state used for error correction codewords that shouldn't actually be decoded
+const EC_TABLE_STATE: TableState = TableState {
+    base30_val: 0,
+    char: 6,
+    this_table: 0,
+    next_table: 0,
+    next_next_table: 0,
+};
+
+// A table state used for the SLD
+const SLD_TABLE_STATE: TableState = TableState {
+    base30_val: 0,
+    char: 95,
+    this_table: 0,
+    next_table: 0,
+    next_next_table: 0,
+};
+
+/// Appends dummy SLD, EC, and pad table states to `char_table_states`, then prepends
+/// zero states so the total length reaches 2700.
+///
+/// Layout (appended in order):
+///   1. 1 SLD codeword → 2 `SLD_TABLE_STATE` entries
+///   2. 2^(ec_level + 1) EC codewords → 2 `EC_TABLE_STATE` entries each
+///   3. Remaining pad codewords → 2 `PAD_TABLE_STATE` entries each
+///      where pad_count = row_count * column_count − 1 (SLD) − ec_count − text_codewords
+/// Finally, `ZERO_TABLE_STATE` entries are prepended until the total reaches 2700.
+fn add_dummy_table_states(
+    char_table_states: &mut Vec<TableState>,
+    row_count: u32,
+    column_count: u32,
+    ec_level: u32,
+) {
+    let text_codeword_count = char_table_states.len() as u32 / 2;
+
+    // 1 SLD codeword (2 states)
+    char_table_states.push(SLD_TABLE_STATE);
+    char_table_states.push(SLD_TABLE_STATE);
+
+    // 2^(ec_level + 1) EC codewords (2 states each)
+    let ec_count = 1u32 << (ec_level + 1);
+    for _ in 0..ec_count {
+        char_table_states.push(EC_TABLE_STATE);
+        char_table_states.push(EC_TABLE_STATE);
+    }
+
+    // Pad codewords between data and EC sections (2 states each)
+    let total_codewords = row_count * column_count;
+    let pad_codewords = total_codewords.saturating_sub(1 + ec_count + text_codeword_count);
+    for _ in 0..pad_codewords {
+        char_table_states.push(PAD_TABLE_STATE);
+        char_table_states.push(PAD_TABLE_STATE);
+    }
+
+    // Prepend zero states to reach exactly 5400 total states
+    let current_count = char_table_states.len();
+    if current_count < 5400 {
+        let zero_count = 5400 - current_count;
+        let mut result: Vec<TableState> = (0..zero_count).map(|_| ZERO_TABLE_STATE).collect();
+        result.append(char_table_states);
+        *char_table_states = result;
+    }
+}
+
 /**
  * Holds witness data for zero-knowledge proof generation during barcode processing.
  *
@@ -105,6 +187,9 @@ pub struct WitnessData {
     /// Character interpretation states from PDF417 Text Compaction Mode decoding.
     /// Each text codeword (0-899) produces two entries: one for (codeword/30) and one for (codeword%30).
     pub char_table_states: Option<Vec<TableState>>,
+
+    /// The final decoded text of the barcode, represented as ASCII integer values.
+    pub chars: Option<Vec<u8>>,
 }
 
 const WB_DECOMP: usize = 2;
@@ -189,6 +274,9 @@ pub struct FinalizedWitnessData {
     /// Character interpretation states from PDF417 Text Compaction Mode decoding.
     /// Each text codeword (0-899) produces two entries: one for (codeword/30) and one for (codeword%30).
     pub char_table_states: Vec<TableState>,
+
+    /// The final decoded text of the barcode, represented as ASCII integer values.
+    pub chars: Vec<u8>,
 }
 
 impl FinalizedWitnessData {
@@ -210,6 +298,7 @@ impl FinalizedWitnessData {
         corrected_codewords: Vec<u32>,
         polynomial_results: Vec<PolynomialResult>,
         char_table_states: Vec<TableState>,
+        chars: Vec<u8>,
     ) -> Self {
         assert_eq!(
             image.len(),
@@ -276,6 +365,7 @@ impl FinalizedWitnessData {
             corrected_codewords,
             polynomial_results,
             char_table_states,
+            chars,
         }
     }
 
@@ -446,10 +536,14 @@ impl FinalizedWitnessData {
             "no polynomial results data",
         )?;
 
-        let char_table_states = Option::ok_or(
+        let mut char_table_states = Option::ok_or(
             witness_data.char_table_states.clone(),
             "no char table states data",
         )?;
+
+        add_dummy_table_states(&mut char_table_states, row_count, column_count, ec_level);
+
+        let chars = Option::ok_or(witness_data.chars.clone(), "no chars data")?;
 
         Ok(Self::new(
             witness_data.width,
@@ -469,6 +563,7 @@ impl FinalizedWitnessData {
             corrected_codewords,
             polynomial_results,
             char_table_states,
+            chars,
         ))
     }
 
@@ -548,6 +643,7 @@ impl WitnessData {
             corrected_codewords: None,
             polynomial_results: None,
             char_table_states: None,
+            chars: None,
         }
     }
 
@@ -608,6 +704,10 @@ impl WitnessData {
 
     pub fn set_char_table_states(&mut self, char_table_states: Vec<TableState>) {
         self.char_table_states = Some(char_table_states);
+    }
+
+    pub fn set_chars(&mut self, chars: Vec<u8>) {
+        self.chars = Some(chars);
     }
 
     /**
@@ -751,6 +851,7 @@ mod tests {
             should_be_zero: true,
         }]);
         witness.set_char_table_states(vec![]);
+        witness.set_chars(vec![]);
 
         // Verify successful finalization
         let finalized = witness
