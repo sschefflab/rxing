@@ -93,8 +93,6 @@ pub mod multi;
 pub mod oned;
 pub mod pdf417;
 
-pub mod polynomial_bezout;
-
 mod multi_format_writer;
 pub use multi_format_writer::*;
 mod multi_use_multi_format_reader;
