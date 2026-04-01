@@ -781,6 +781,333 @@ where
 mod tests {
     use super::*;
 
+    /// Build a BitMatrix from a slice of bool slices (rows).
+    fn make_bitmatrix(rows: &[&[bool]]) -> BitMatrix {
+        let height = rows.len();
+        let width = rows.first().map_or(0, |r| r.len());
+        let mut bm = BitMatrix::new(width as u32, height as u32).unwrap();
+        for (y, row) in rows.iter().enumerate() {
+            for (x, &px) in row.iter().enumerate() {
+                if px {
+                    bm.set(x as u32, y as u32);
+                }
+            }
+        }
+        bm
+    }
+
+    // -------------------------------------------------------------------------
+    // compute_lookups_and_decomps
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_compute_lookups_all_white() {
+        // Single row, 5 white pixels → one block of length 5
+        let image = make_bitmatrix(&[&[false, false, false, false, false]]);
+        let (lookups, decomps) =
+            FinalizedWitnessData::compute_lookups_and_decomps::<2>(&image, 27);
+
+        assert_eq!(lookups.len(), 1);
+        assert_eq!(decomps.len(), 1);
+        let [int_val, blocks_base_b, r, nb, odd, block] = lookups[0];
+        assert_eq!(int_val, 0);
+        assert_eq!(blocks_base_b, 5); // B=27, single block of 5
+        assert_eq!(r, 5);
+        assert_eq!(nb, 1);
+        assert_eq!(odd, 1);
+        assert_eq!(block, 0); // last block is white
+        assert_eq!(decomps[0], [0, 5]); // padded with one leading zero
+    }
+
+    #[test]
+    fn test_compute_lookups_all_black() {
+        // Single row, 5 black pixels → one block of length 5
+        let image = make_bitmatrix(&[&[true, true, true, true, true]]);
+        let (lookups, decomps) =
+            FinalizedWitnessData::compute_lookups_and_decomps::<2>(&image, 27);
+
+        assert_eq!(lookups.len(), 1);
+        let [int_val, blocks_base_b, r, nb, odd, block] = lookups[0];
+        assert_eq!(int_val, 0b11111); // all 5 bits set
+        assert_eq!(blocks_base_b, 5);
+        assert_eq!(r, 5);
+        assert_eq!(nb, 1);
+        assert_eq!(odd, 1);
+        assert_eq!(block, 1); // last block is black
+        assert_eq!(decomps[0], [0, 5]);
+    }
+
+    #[test]
+    fn test_compute_lookups_two_blocks() {
+        // 3 black then 7 white, fills exactly one chunk of 10
+        let row: &[bool] = &[
+            true, true, true, false, false, false, false, false, false, false,
+        ];
+        let image = make_bitmatrix(&[row]);
+        let (lookups, decomps) =
+            FinalizedWitnessData::compute_lookups_and_decomps::<2>(&image, 27);
+
+        assert_eq!(lookups.len(), 1);
+        let [int_val, blocks_base_b, r, nb, odd, block] = lookups[0];
+        assert_eq!(int_val, 0b0000000111); // bits 0,1,2 set
+        assert_eq!(blocks_base_b, 3 * 27 + 7); // = 88
+        assert_eq!(r, 7);
+        assert_eq!(nb, 2);
+        assert_eq!(odd, 0);
+        // first_is_black=true, (nb-1)%2=1 → last is opposite → white → block=0
+        assert_eq!(block, 0);
+        assert_eq!(decomps[0], [3, 7]);
+    }
+
+    #[test]
+    fn test_compute_lookups_four_blocks() {
+        // [W,B,B,W,W,W,W,B,B,B] → blocks [1,2,4,3], N=4
+        let row: &[bool] = &[
+            false, true, true, false, false, false, false, true, true, true,
+        ];
+        let image = make_bitmatrix(&[row]);
+        let (lookups, decomps) =
+            FinalizedWitnessData::compute_lookups_and_decomps::<4>(&image, 1080);
+
+        let [_int_val, blocks_base_b, r, nb, odd, block] = lookups[0];
+        assert_eq!(nb, 4);
+        assert_eq!(odd, 0);
+        assert_eq!(r, 3);
+        // first_is_black=false, (nb-1)%2=3%2=1 → last is opposite → black → block=1
+        assert_eq!(block, 1);
+        // decomp fills all N=4 slots, no leading zeros
+        assert_eq!(decomps[0], [1, 2, 4, 3]);
+        // blocks_base_b = 1*1080^3 + 2*1080^2 + 4*1080 + 3
+        let expected = 1u128 * 1080u128.pow(3)
+            + 2 * 1080u128.pow(2)
+            + 4 * 1080
+            + 3;
+        assert_eq!(blocks_base_b, expected);
+    }
+
+    #[test]
+    fn test_compute_lookups_multiple_chunks() {
+        // Width=20, one row: first 2 cols black, cols 15-19 black
+        // Chunk 0 (cols 0-9):  [T,T,F,F,F,F,F,F,F,F] → blocks [2,8]
+        // Chunk 1 (cols 10-19):[F,F,F,F,F,T,T,T,T,T] → blocks [5,5]
+        let mut row = vec![false; 20];
+        row[0] = true;
+        row[1] = true;
+        for i in 15..20 {
+            row[i] = true;
+        }
+        let image = make_bitmatrix(&[row.as_slice()]);
+        let (lookups, decomps) =
+            FinalizedWitnessData::compute_lookups_and_decomps::<2>(&image, 27);
+
+        assert_eq!(lookups.len(), 2);
+        assert_eq!(decomps.len(), 2);
+
+        // Chunk 0
+        let [int_val0, blocks_base_b0, r0, nb0, odd0, block0] = lookups[0];
+        assert_eq!(int_val0, 3); // bits 0,1
+        assert_eq!(blocks_base_b0, 2 * 27 + 8); // = 62
+        assert_eq!(r0, 8);
+        assert_eq!(nb0, 2);
+        assert_eq!(odd0, 0);
+        assert_eq!(block0, 0); // first=black, (nb-1)%2=1 → last=white
+        assert_eq!(decomps[0], [2, 8]);
+
+        // Chunk 1
+        let [int_val1, blocks_base_b1, r1, nb1, odd1, block1] = lookups[1];
+        // pixels 5-9 of the chunk (cols 15-19) are black → bits 5-9 set
+        assert_eq!(int_val1, (1u128 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9));
+        assert_eq!(blocks_base_b1, 5 * 27 + 5); // = 140
+        assert_eq!(r1, 5);
+        assert_eq!(nb1, 2);
+        assert_eq!(odd1, 0);
+        assert_eq!(block1, 1); // first=white, (nb-1)%2=1 → last=black
+        assert_eq!(decomps[1], [5, 5]);
+    }
+
+    #[test]
+    fn test_compute_lookups_multiple_rows() {
+        // 2 rows: all-black, all-white
+        let image = make_bitmatrix(&[
+            &[true, true, true, true, true],
+            &[false, false, false, false, false],
+        ]);
+        let (lookups, decomps) =
+            FinalizedWitnessData::compute_lookups_and_decomps::<2>(&image, 27);
+
+        assert_eq!(lookups.len(), 2);
+        assert_eq!(decomps.len(), 2);
+        assert_eq!(lookups[0][5], 1); // row 0: last block black
+        assert_eq!(lookups[1][5], 0); // row 1: last block white
+        assert_eq!(decomps[0], [0, 5]);
+        assert_eq!(decomps[1], [0, 5]);
+    }
+
+    #[test]
+    fn test_decomp_reconstructs_blocks_base_b() {
+        // For any chunk, folding the decomp big-endian must equal blocks_base_b in the lookup.
+        let rows: &[&[bool]] = &[
+            &[true, false, true, false, true, false, true, false, true, false], // alternating, 10 blocks
+            &[true, true, false, false, true, true, false, false, true, true], // pairs
+            &[false, false, false, true, true, true, true, true, true, true], // 3 white then 7 black
+        ];
+        let image = make_bitmatrix(rows);
+        const B: usize = 27;
+        // Use N=10 so even fully alternating rows (10 blocks) fit
+        let (lookups, decomps) =
+            FinalizedWitnessData::compute_lookups_and_decomps::<10>(&image, B);
+
+        for (lookup, decomp) in lookups.iter().zip(decomps.iter()) {
+            let blocks_base_b = lookup[1];
+            let reconstructed: u128 = decomp
+                .iter()
+                .fold(0u128, |acc, &d| acc * B as u128 + d as u128);
+            assert_eq!(
+                reconstructed, blocks_base_b,
+                "decomp {:?} does not reconstruct blocks_base_b {}",
+                decomp, blocks_base_b
+            );
+        }
+    }
+
+    #[test]
+    fn test_decomp_leading_zeros_match_nb() {
+        // The number of leading zeros in the decomp should equal N - nb.
+        let rows: &[&[bool]] = &[
+            &[true, true, true, false, false, false, false, false, false, false], // 2 blocks
+            &[true, false, true, false, true, false, false, false, false, false], // 6 blocks (alt)
+        ];
+        let image = make_bitmatrix(rows);
+        let (lookups, decomps) =
+            FinalizedWitnessData::compute_lookups_and_decomps::<10>(&image, 27);
+
+        for (lookup, decomp) in lookups.iter().zip(decomps.iter()) {
+            let nb = lookup[3] as usize;
+            let leading_zeros = decomp.iter().take_while(|&&d| d == 0).count();
+            assert_eq!(leading_zeros, 10 - nb);
+            // All non-leading-zero elements should be positive
+            for &d in &decomp[(10 - nb)..] {
+                assert!(d > 0, "non-leading element should be positive");
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // compute_blocks
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_compute_blocks_basic() {
+        // [T,T,F,F,F] → run-lengths [2, 3], padded to len=5
+        let image = make_bitmatrix(&[&[true, true, false, false, false]]);
+        let blocks = FinalizedWitnessData::compute_blocks(&image, 5);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0][0], 2);
+        assert_eq!(blocks[0][1], 3);
+        assert_eq!(blocks[0][2], 0); // zero-padded
+    }
+
+    #[test]
+    fn test_compute_blocks_single_run() {
+        // All white → one run, padded to len=4
+        let image = make_bitmatrix(&[&[false, false, false, false]]);
+        let blocks = FinalizedWitnessData::compute_blocks(&image, 4);
+        assert_eq!(blocks[0][0], 4);
+        for &b in &blocks[0][1..] {
+            assert_eq!(b, 0);
+        }
+    }
+
+    #[test]
+    fn test_compute_blocks_multiple_rows() {
+        let image = make_bitmatrix(&[
+            &[true, true, false],   // [2, 1]
+            &[false, false, false], // [3]
+        ]);
+        let blocks = FinalizedWitnessData::compute_blocks(&image, 4);
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0][0], 2);
+        assert_eq!(blocks[0][1], 1);
+        assert_eq!(blocks[1][0], 3);
+        assert_eq!(blocks[1][1], 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // add_dummy_table_states
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_add_dummy_table_states_total_length() {
+        let mut states: Vec<TableState> = Vec::new();
+        // row_count=1, column_count=1, ec_level=0
+        // total_codewords=1, ec_count=2, pad=max(0, 1-1-2-0)=0
+        // pushed: 0 + 2(SLD) + 4(EC) + 0(pad) = 6 → prepend 5394 zeros
+        add_dummy_table_states(&mut states, 1, 1, 0);
+        assert_eq!(states.len(), 5400);
+    }
+
+    #[test]
+    fn test_add_dummy_table_states_with_text_codewords() {
+        // 2 text codewords → 4 states; row_count=5, col_count=4, ec_level=1
+        // total=20, ec_count=4, pad=20-1-4-2=13
+        // pushed: 4 + 2 + 8 + 26 = 40 → prepend 5360 zeros
+        let mut states: Vec<TableState> = (0..4)
+            .map(|_| TableState {
+                base30_val: 1,
+                char: 65,
+                this_table: 0,
+                next_table: 0,
+                next_next_table: 0,
+            })
+            .collect();
+        add_dummy_table_states(&mut states, 5, 4, 1);
+        assert_eq!(states.len(), 5400);
+    }
+
+    #[test]
+    fn test_add_dummy_table_states_markers() {
+        // Empty input, 1x1 barcode, ec_level=0:
+        // Layout: [5394 × ZERO] [SLD SLD] [EC EC EC EC]
+        let mut states: Vec<TableState> = Vec::new();
+        add_dummy_table_states(&mut states, 1, 1, 0);
+
+        // Leading entries are zeros (char=0)
+        assert_eq!(states[0].char, 0);
+        assert_eq!(states[5393].char, 0);
+        // SLD entries (char=95)
+        assert_eq!(states[5394].char, 95);
+        assert_eq!(states[5395].char, 95);
+        // EC entries (char=6)
+        assert_eq!(states[5396].char, 6);
+        assert_eq!(states[5397].char, 6);
+        assert_eq!(states[5398].char, 6);
+        assert_eq!(states[5399].char, 6);
+    }
+
+    #[test]
+    fn test_add_dummy_table_states_pad_marker() {
+        // Use a barcode large enough to have pad codewords.
+        // 4 text states (2 codewords), row_count=10, col_count=5, ec_level=0
+        // total=50, ec_count=2, pad=50-1-2-2=45
+        // Layout: [zeros] [text×4] [SLD×2] [EC×4] [PAD×90]
+        let mut states: Vec<TableState> = (0..4)
+            .map(|_| TableState {
+                base30_val: 0,
+                char: 65,
+                this_table: 0,
+                next_table: 0,
+                next_next_table: 0,
+            })
+            .collect();
+        add_dummy_table_states(&mut states, 10, 5, 0);
+        assert_eq!(states.len(), 5400);
+
+        // The last 90 entries should be PAD (char=32)
+        for entry in states.iter().rev().take(90) {
+            assert_eq!(entry.char, 32, "expected PAD_TABLE_STATE at tail");
+        }
+    }
+
     #[test]
     fn test_witness_data_creation() {
         // Create a simple 4x4 test image as 2D array
