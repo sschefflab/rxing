@@ -53,16 +53,40 @@ pub struct TableState {
 }
 
 // A dummy table state used before decoding actually begins
-const ZERO_TABLE_STATE: TableState = TableState { base30_val: 0, char: 0, this_table: 0, next_table: 0, next_next_table: 0 };
+const ZERO_TABLE_STATE: TableState = TableState {
+    base30_val: 0,
+    char: 0,
+    this_table: 0,
+    next_table: 0,
+    next_next_table: 0,
+};
 
 // A pad table state that may be present between data and error correction codewords
-const PAD_TABLE_STATE: TableState = TableState { base30_val: 0, char: 32, this_table: 0, next_table: 0, next_next_table: 0 };
+const PAD_TABLE_STATE: TableState = TableState {
+    base30_val: 0,
+    char: 32,
+    this_table: 0,
+    next_table: 0,
+    next_next_table: 0,
+};
 
 // A table state used for error correction codewords that shouldn't actually be decoded
-const EC_TABLE_STATE: TableState = TableState { base30_val: 0, char: 6, this_table: 0, next_table: 0, next_next_table: 0 };
+const EC_TABLE_STATE: TableState = TableState {
+    base30_val: 0,
+    char: 6,
+    this_table: 0,
+    next_table: 0,
+    next_next_table: 0,
+};
 
 // A table state used for the SLD
-const SLD_TABLE_STATE: TableState = TableState { base30_val: 0, char: 95, this_table: 0, next_table: 0, next_next_table: 0 };
+const SLD_TABLE_STATE: TableState = TableState {
+    base30_val: 0,
+    char: 95,
+    this_table: 0,
+    next_table: 0,
+    next_next_table: 0,
+};
 
 /// Appends dummy SLD, EC, and pad table states to `char_table_states`, then prepends
 /// zero states so the total length reaches 2700.
@@ -100,10 +124,10 @@ fn add_dummy_table_states(
         char_table_states.push(PAD_TABLE_STATE);
     }
 
-    // Prepend zero states to reach exactly 2700 total states
+    // Prepend zero states to reach exactly 5400 total states
     let current_count = char_table_states.len();
-    if current_count < 2700 {
-        let zero_count = 2700 - current_count;
+    if current_count < 5400 {
+        let zero_count = 5400 - current_count;
         let mut result: Vec<TableState> = (0..zero_count).map(|_| ZERO_TABLE_STATE).collect();
         result.append(char_table_states);
         *char_table_states = result;
