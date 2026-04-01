@@ -104,6 +104,7 @@ pub fn bezout<F: FftField>(
 mod tests {
     use super::*;
     use ark_bls12_381::Fr;
+    use ark_ff::One;
 
     #[test]
     fn test_bezout_identity_holds() {
