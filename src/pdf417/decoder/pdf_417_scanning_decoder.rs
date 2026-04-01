@@ -926,14 +926,19 @@ fn decodeCodewords(
     codewords: &mut [u32],
     ecLevel: u32,
     erasures: &mut [u32],
-    witness_data: Option<&mut WitnessData>,
+    mut witness_data: Option<&mut WitnessData>,
 ) -> Result<DecoderRXingResult> {
     if codewords.is_empty() {
         return Err(Exceptions::FORMAT);
     }
 
     let numECCodewords = 1 << (ecLevel + 1);
-    let correctedErrorsCount = correctErrors(codewords, erasures, numECCodewords, witness_data)?;
+    let correctedErrorsCount = correctErrors(
+        codewords,
+        erasures,
+        numECCodewords,
+        witness_data.as_deref_mut(),
+    )?;
     verifyCodewordCount(codewords, numECCodewords)?;
 
     // Decode the codewords
@@ -941,6 +946,15 @@ fn decodeCodewords(
         decoded_bit_stream_parser::decode(codewords, &ecLevel.to_string())?;
     decoderRXingResult.setErrorsCorrected(correctedErrorsCount);
     decoderRXingResult.setErasures(erasures.len());
+
+    if let Some(wd) = witness_data {
+        let chars: Vec<u8> = decoderRXingResult
+            .getText()
+            .chars()
+            .map(|c| c as u8)
+            .collect();
+        wd.set_chars(chars);
+    }
 
     Ok(decoderRXingResult)
 }
