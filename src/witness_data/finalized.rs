@@ -5,16 +5,16 @@
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use crate::common::BitMatrix;
+use super::accumulator::WitnessData;
 use super::block_ops::{
     compute_blocks, compute_ext_codewords, compute_lookups_and_decomps, compute_normalized_blocks,
     compute_words, compute_words_with_dummies,
 };
-use super::accumulator::WitnessData;
 use super::types::{
-    PolynomialResult, RowIndicatorVars, TableState,
-    EC_TABLE_STATE, PAD_TABLE_STATE, SLD_TABLE_STATE, ZERO_TABLE_STATE,
+    EC_TABLE_STATE, PAD_TABLE_STATE, PolynomialResult, RowIndicatorVars, SLD_TABLE_STATE,
+    TableState, ZERO_TABLE_STATE,
 };
+use crate::common::BitMatrix;
 
 #[cfg(feature = "serde")]
 use super::serde_support::serialize_bitmatrix;
@@ -366,20 +366,6 @@ impl FinalizedWitnessData {
 mod tests {
     use super::*;
     use crate::common::BitMatrix;
-
-    fn make_bitmatrix(rows: &[&[bool]]) -> BitMatrix {
-        let height = rows.len();
-        let width = rows.first().map_or(0, |r| r.len());
-        let mut bm = BitMatrix::new(width as u32, height as u32).unwrap();
-        for (y, row) in rows.iter().enumerate() {
-            for (x, &px) in row.iter().enumerate() {
-                if px {
-                    bm.set(x as u32, y as u32);
-                }
-            }
-        }
-        bm
-    }
 
     // -------------------------------------------------------------------------
     // add_dummy_table_states

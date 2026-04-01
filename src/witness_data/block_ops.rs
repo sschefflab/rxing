@@ -133,9 +133,11 @@ pub fn compute_blocks(image: &BitMatrix, len: usize) -> Vec<Vec<u32>> {
 }
 
 /// Word value of the PDF417 start pattern
-pub const START_WORD: u32 = 8_111_113;
+pub const START_WORD: u32 = 81_111_113;
 /// Word value of the PDF417 stop pattern
 pub const STOP_WORD: u32 = 71_131_112;
+
+pub const DUMMY_CW: u32 = 919;
 
 /// Converts a normalized 8-element block into a single integer by concatenating digits.
 /// e.g. [1,2,3,4,4,3,2,1] → 12344321
@@ -168,10 +170,13 @@ fn decodes_exactly(block: &[u32; 8]) -> bool {
 fn ext_codeword_of(block: &[u32; 8], word: u32) -> u32 {
     use crate::pdf417::pdf_417_common;
     if word == 0 || word == START_WORD || word == STOP_WORD {
-        return 919;
+        return DUMMY_CW;
     }
     let cw = pdf_417_common::getCodeword(bit_value_of_block(block));
-    debug_assert!(cw != -1, "ext_codeword_of called on non-decodable word {word}");
+    debug_assert!(
+        cw != -1,
+        "ext_codeword_of called on non-decodable word {word}"
+    );
     cw as u32
 }
 
@@ -344,10 +349,7 @@ mod tests {
         // decomp fills all N=4 slots, no leading zeros
         assert_eq!(decomps[0], [1, 2, 4, 3]);
         // blocks_base_b = 1*1080^3 + 2*1080^2 + 4*1080 + 3
-        let expected = 1u128 * 1080u128.pow(3)
-            + 2 * 1080u128.pow(2)
-            + 4 * 1080
-            + 3;
+        let expected = 1u128 * 1080u128.pow(3) + 2 * 1080u128.pow(2) + 4 * 1080 + 3;
         assert_eq!(blocks_base_b, expected);
     }
 
@@ -381,7 +383,10 @@ mod tests {
         // Chunk 1
         let [int_val1, blocks_base_b1, r1, nb1, odd1, block1] = lookups[1];
         // pixels 5-9 of the chunk (cols 15-19) are black → bits 5-9 set
-        assert_eq!(int_val1, (1u128 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9));
+        assert_eq!(
+            int_val1,
+            (1u128 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9)
+        );
         assert_eq!(blocks_base_b1, 5 * 27 + 5); // = 140
         assert_eq!(r1, 5);
         assert_eq!(nb1, 2);
@@ -411,9 +416,15 @@ mod tests {
     fn test_decomp_reconstructs_blocks_base_b() {
         // For any chunk, folding the decomp big-endian must equal blocks_base_b in the lookup.
         let rows: &[&[bool]] = &[
-            &[true, false, true, false, true, false, true, false, true, false], // alternating, 10 blocks
-            &[true, true, false, false, true, true, false, false, true, true], // pairs
-            &[false, false, false, true, true, true, true, true, true, true], // 3 white then 7 black
+            &[
+                true, false, true, false, true, false, true, false, true, false,
+            ], // alternating, 10 blocks
+            &[
+                true, true, false, false, true, true, false, false, true, true,
+            ], // pairs
+            &[
+                false, false, false, true, true, true, true, true, true, true,
+            ], // 3 white then 7 black
         ];
         let image = make_bitmatrix(rows);
         const B: usize = 27;
@@ -437,8 +448,12 @@ mod tests {
     fn test_decomp_leading_zeros_match_nb() {
         // The number of leading zeros in the decomp should equal N - nb.
         let rows: &[&[bool]] = &[
-            &[true, true, true, false, false, false, false, false, false, false], // 2 blocks
-            &[true, false, true, false, true, false, false, false, false, false], // 6 blocks (alt)
+            &[
+                true, true, true, false, false, false, false, false, false, false,
+            ], // 2 blocks
+            &[
+                true, false, true, false, true, false, false, false, false, false,
+            ], // 6 blocks (alt)
         ];
         let image = make_bitmatrix(rows);
         let (lookups, decomps) = compute_lookups_and_decomps::<10>(&image, 27);
@@ -510,6 +525,29 @@ mod tests {
         assert_eq!(sum, 17);
     }
 
+    const START_BLOCKS: [u32; 8] = [8, 1, 1, 1, 1, 1, 1, 3];
+
+    #[test]
+    fn test_normalized_blocks_start() {
+        // start blocks normalize to the start symbol
+        let blocks = vec![Vec::from(START_BLOCKS)];
+        let normalized = compute_normalized_blocks(&blocks);
+        assert_eq!(normalized.len(), 1);
+        assert_eq!(normalized[0].len(), 1);
+        assert_eq!(normalized[0][0], START_BLOCKS);
+    }
+
+    #[test]
+    fn test_normalized_blocks_start_2x() {
+        // start blocks but doubled normalize to the start symbol
+        let start_blocks_2x: [u32; 8] = [16, 2, 2, 2, 2, 2, 2, 6];
+        let blocks = vec![Vec::from(start_blocks_2x)];
+        let normalized = compute_normalized_blocks(&blocks);
+        assert_eq!(normalized.len(), 1);
+        assert_eq!(normalized[0].len(), 1);
+        assert_eq!(normalized[0][0], START_BLOCKS);
+    }
+
     #[test]
     fn test_normalized_blocks_zero_window_filtered() {
         // A window with any zero element must be dropped entirely.
@@ -545,7 +583,7 @@ mod tests {
         let blocks = vec![
             vec![1u32, 2, 3, 4, 5, 6, 7, 8], // 1 nonzero window
             vec![1u32, 0, 1, 1, 1, 1, 1, 1], // zero in window → filtered
-            vec![],                            // empty row
+            vec![],                          // empty row
         ];
         let normalized = compute_normalized_blocks(&blocks);
         assert_eq!(normalized.len(), 3);
@@ -559,7 +597,7 @@ mod tests {
         // Two windows: first has a zero (filtered), second is all-nonzero.
         let blocks = vec![vec![
             1u32, 2, 0, 4, 5, 6, 7, 8, // window 0: has a zero
-            1, 1, 1, 1, 1, 1, 1, 1,    // window 1: all nonzero
+            1, 1, 1, 1, 1, 1, 1, 1, // window 1: all nonzero
         ]];
         let normalized = compute_normalized_blocks(&blocks);
         assert_eq!(normalized[0].len(), 1); // only window 1 survives
