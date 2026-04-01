@@ -365,7 +365,6 @@ impl FinalizedWitnessData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::BitMatrix;
 
     // -------------------------------------------------------------------------
     // add_dummy_table_states
