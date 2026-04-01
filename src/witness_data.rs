@@ -52,6 +52,70 @@ pub struct TableState {
     pub next_next_table: u32,
 }
 
+/// Word value of the PDF417 start pattern
+const START_WORD: u32 = 8_111_113;
+/// Word value of the PDF417 stop pattern
+const STOP_WORD: u32 = 71_131_112;
+
+/// Converts a normalized 8-element block into a single integer by concatenating digits.
+/// e.g. [1,2,3,4,4,3,2,1] → 12344321
+fn get_word(block: &[u32; 8]) -> u32 {
+    block.iter().fold(0u32, |acc, &b| acc * 10 + b)
+}
+
+/// Returns true if the normalized block decodes exactly to a valid PDF417 codeword
+/// (i.e. without falling back to closest-match).
+fn decodes_exactly(block: &[u32; 8]) -> bool {
+    use crate::pdf417::pdf_417_common;
+    let mut result: u64 = 0;
+    for (i, &mbc) in block.iter().enumerate() {
+        for _ in 0..mbc {
+            result = (result << 1) | u64::from(i % 2 == 0);
+        }
+    }
+    pdf_417_common::getCodeword(result as u32) != -1
+}
+
+/// Computes raw words from normalized_blocks: each [u32; 8] → single u32 word.
+fn compute_words(normalized_blocks: &[Vec<[u32; 8]>]) -> Vec<Vec<u32>> {
+    normalized_blocks
+        .iter()
+        .map(|row| row.iter().map(|block| get_word(block)).collect())
+        .collect()
+}
+
+/// Computes words_with_dummies[R][WB_CW]:
+///   - Duplicate rows (per wb_inds) are entirely zeroed out.
+///   - In non-duplicate rows: words that don't decode exactly and aren't START/STOP → 0.
+///   - START/STOP words and exact-decode words are kept as-is.
+fn compute_words_with_dummies(
+    normalized_blocks: &[Vec<[u32; 8]>],
+    wb_inds: &[u32],
+) -> Vec<Vec<u32>> {
+    let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    normalized_blocks
+        .iter()
+        .zip(wb_inds.iter())
+        .map(|(row, &orig_idx)| {
+            if !seen.insert(orig_idx) {
+                // Duplicate row — zero everything out
+                vec![0u32; row.len()]
+            } else {
+                row.iter()
+                    .map(|block| {
+                        let word = get_word(block);
+                        if word == START_WORD || word == STOP_WORD || decodes_exactly(block) {
+                            word
+                        } else {
+                            0
+                        }
+                    })
+                    .collect()
+            }
+        })
+        .collect()
+}
+
 // A dummy table state used before decoding actually begins
 const ZERO_TABLE_STATE: TableState = TableState {
     base30_val: 0,
@@ -267,6 +331,15 @@ pub struct FinalizedWitnessData {
 
     /// The final decoded text of the barcode, represented as ASCII integer values.
     pub chars: Vec<u8>,
+
+    /// Raw words computed from normalized_blocks: each [u32; 8] block smushed into a u32.
+    /// Shape: [R][WB_CW] matching normalized_blocks.
+    pub words: Vec<Vec<u32>>,
+
+    /// Well-behaved words with dummies zeroed out. Shape: [R][WB_CW].
+    ///   - Duplicate rows (per wb_inds) are entirely zeroed out.
+    ///   - Words that don't decode exactly and aren't START/STOP are replaced with 0.
+    pub words_with_dummies: Vec<Vec<u32>>,
 }
 
 impl FinalizedWitnessData {
@@ -315,6 +388,8 @@ impl FinalizedWitnessData {
             .map(|target| wb_inds.iter().filter(|&&x| x == *target).count() as u32)
             .collect();
         let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
+        let words = compute_words(&normalized_blocks);
+        let words_with_dummies = compute_words_with_dummies(&normalized_blocks, &wb_inds);
 
         Self {
             width,
@@ -339,6 +414,8 @@ impl FinalizedWitnessData {
             polynomial_results,
             char_table_states,
             chars,
+            words,
+            words_with_dummies,
         }
     }
 
@@ -406,6 +483,8 @@ impl FinalizedWitnessData {
             .map(|target| wb_inds.iter().filter(|&&x| x == *target).count() as u32)
             .collect();
         let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
+        let words = compute_words(&normalized_blocks);
+        let words_with_dummies = compute_words_with_dummies(&normalized_blocks, &wb_inds);
 
         Ok(Self {
             width: witness_data.width,
@@ -430,6 +509,8 @@ impl FinalizedWitnessData {
             polynomial_results,
             char_table_states,
             chars,
+            words,
+            words_with_dummies,
         })
     }
 
@@ -735,6 +816,7 @@ mod tests {
             should_be_zero: true,
         }]);
         witness.set_char_table_states(vec![]);
+        witness.set_chars(vec![]);
 
         // Verify successful finalization
         let finalized = witness
