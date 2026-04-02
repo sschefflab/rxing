@@ -20,10 +20,10 @@ use crate::common::BitMatrix;
 use crate::disjoint_set_polynomials::show_disjoint_from_valid_words;
 
 #[cfg(feature = "serde")]
-use super::serde_support::{serialize_bitmatrix, serialize_fr_vec};
+use super::serde_support::{serialize_bitmatrix, serialize_fr_vec, serialize_u32_array_vec};
 
-const WB_DECOMP: usize = 2;
-const G_DECOMP: usize = 4;
+const WB_NB: usize = 273;
+const G_NB: usize = 1080;
 
 /// Appends dummy SLD, EC, and pad table states to `char_table_states`, then prepends
 /// zero states so the total length reaches 5400.
@@ -104,7 +104,8 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     // data that should be in the lookup table we use in the proof for the well-behaved image
     pub wb_lookups: Vec<[u128; 6]>,
     // the baseB decomp of each encoded chunk of blocks
-    pub wb_baseB_decomps: Vec<[usize; WB_DECOMP]>,
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_u32_array_vec"))]
+    pub wb_baseB_decomps: Vec<[u32; WB_NB]>,
 
     // The "garbage" rows of the image that will not decode
     // Will always have exactly 89 rows. Padded with zero rows.
@@ -119,7 +120,8 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     // data that should be in the lookup table we use in the proof for the garbage image
     pub garbage_lookups: Vec<[u128; 6]>,
     // the baseB decomp of each encoded chunk of blocks
-    pub g_baseB_decomps: Vec<[usize; G_DECOMP]>,
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_u32_array_vec"))]
+    pub g_baseB_decomps: Vec<[u32; G_NB]>,
 
     pub wb_blocks: Vec<Vec<u32>>,
     pub wb_normalized_blocks: Vec<Vec<[u32; 8]>>,
@@ -216,18 +218,15 @@ impl FinalizedWitnessData<Fr> {
         }
         const WB_B: usize = 27;
         const G_B: usize = 1080;
-        const WB_NB: usize = 273;
-        const G_NB: usize = 1080;
 
         let wb_ind_counts: Vec<u32> = wb_inds
             .iter()
             .map(|target| wb_inds.iter().filter(|&&x| x == *target).count() as u32)
             .collect();
         let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
-        let (wb_lookups, wb_baseB_decomps) =
-            compute_lookups_and_decomps::<WB_DECOMP>(&wb_image, WB_B);
+        let (wb_lookups, wb_baseB_decomps) = compute_lookups_and_decomps::<WB_NB>(&wb_image, WB_B);
         let (garbage_lookups, g_baseB_decomps) =
-            compute_lookups_and_decomps::<G_DECOMP>(&garbage_image, G_B);
+            compute_lookups_and_decomps::<G_NB>(&garbage_image, G_B);
 
         let wb_blocks = compute_blocks(&wb_image, WB_NB);
         let wb_normalized_blocks = compute_normalized_blocks(&wb_blocks);

@@ -21,7 +21,7 @@ use crate::pdf417::decoder::pdf_417_codeword_decoder::sampleBitCounts;
 pub fn compute_lookups_and_decomps<const N: usize>(
     image: &BitMatrix,
     B: usize,
-) -> (Vec<[u128; 6]>, Vec<[usize; N]>) {
+) -> (Vec<[u128; 6]>, Vec<[u32; N]>) {
     const L: usize = 10;
     let width = image.width() as usize;
     let height = image.height() as usize;
@@ -70,7 +70,7 @@ pub fn compute_lookups_and_decomps<const N: usize>(
             let mut decomp = [0; N];
             let offset = N - nb;
             for (i, &b) in blocks_vec.iter().enumerate() {
-                decomp[offset + i] = b as usize;
+                decomp[offset + i] = b as u32;
             }
             decomps.push(decomp);
 

@@ -18,6 +18,24 @@ where
     seq.end()
 }
 
+// Custom serialization for Vec<[u32; N]> — serde only auto-implements Serialize for arrays
+// up to size 32, so we serialize each fixed-size array as a slice.
+pub fn serialize_u32_array_vec<const N: usize, S>(
+    vec: &Vec<[u32; N]>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeSeq;
+
+    let mut seq = serializer.serialize_seq(Some(vec.len()))?;
+    for arr in vec {
+        seq.serialize_element(arr.as_slice())?;
+    }
+    seq.end()
+}
+
 // Custom serialization for BitMatrix - convert to 2D array of 0s and 1s
 // Stored as rows[y][x] where each value is 0 (white) or 1 (black)
 pub fn serialize_bitmatrix<S>(
