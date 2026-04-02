@@ -1,4 +1,6 @@
-use ark_ff::FftField;
+use ark_bls12_381::Fr;
+use ark_poly::univariate::DensePolynomial;
+use std::sync::OnceLock;
 
 use super::polynomial_bezout::{bezout, poly_from_roots};
 
@@ -318,6 +320,15 @@ const VALID_WORDS: [u64; 2789] = [
     24511211, 15421112, 14512112, 15421211, 14512211, 33611111, 8111113, 71131112,
 ];
 
+static VALID_WORDS_POLY: OnceLock<DensePolynomial<Fr>> = OnceLock::new();
+
+fn get_valid_words_poly() -> &'static DensePolynomial<Fr> {
+    VALID_WORDS_POLY.get_or_init(|| {
+        let valid_words_f: Vec<Fr> = VALID_WORDS.iter().map(|&w| Fr::from(w)).collect();
+        poly_from_roots(&valid_words_f)
+    })
+}
+
 /// Given a set of field elements `a_set` (e.g. the codeword values seen in a barcode),
 /// prove they are a subset of (and therefore disjoint from the complement of) VALID_WORDS
 /// by computing Bezout coefficients (f, g) such that f * a + g * t = 1, where:
@@ -326,13 +337,10 @@ const VALID_WORDS: [u64; 2789] = [
 ///
 /// gcd(a, t) = 1 iff a_set and VALID_WORDS share no common roots, i.e. every element
 /// of a_set is a valid codeword.
-pub fn show_disjoint_from_valid_words<F: FftField + From<u64>>(
-    a_set: Vec<u32>,
-) -> (Vec<F>, Vec<F>) {
-    let a_set_f: Vec<F> = a_set.iter().map(|&v| F::from(v as u64)).collect();
-    let valid_words_f: Vec<F> = VALID_WORDS.iter().map(|&w| F::from(w)).collect();
-    let t = poly_from_roots(&valid_words_f);
+pub fn show_disjoint_from_valid_words(a_set: Vec<u32>) -> (Vec<Fr>, Vec<Fr>) {
+    let a_set_f: Vec<Fr> = a_set.iter().map(|&v| Fr::from(v as u64)).collect();
+    let t = get_valid_words_poly();
     let a = poly_from_roots(&a_set_f);
-    let (f, g) = bezout(&a, &t);
+    let (f, g) = bezout(&a, t);
     (f.coeffs, g.coeffs)
 }

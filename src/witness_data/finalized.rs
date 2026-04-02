@@ -241,7 +241,7 @@ impl FinalizedWitnessData<Fr> {
             compute_words_with_dummies(&wb_normalized_blocks, &wb_inds);
         let ext_codewords = compute_ext_codewords(&wb_normalized_blocks, &words_with_dummies);
         let (wb_disjoint_set_poly_f, wb_disjoint_set_poly_g) =
-            show_disjoint_from_valid_words::<Fr>(wb_garbage);
+            show_disjoint_from_valid_words(wb_garbage);
 
         Self {
             width,
