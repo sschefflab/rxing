@@ -36,6 +36,36 @@ where
     seq.end()
 }
 
+/// Serializes `Vec<Vec<[u32; N]>>` as a 3D JSON array `[[[u32, ...], ...], ...]`.
+/// Needed because serde only has built-in Serialize for arrays up to size 32.
+pub fn serialize_u32_array_vec_2d<const N: usize, S>(
+    rows: &Vec<Vec<[u32; N]>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeSeq;
+
+    let mut outer = serializer.serialize_seq(Some(rows.len()))?;
+    for row in rows {
+        // Serialize each row as a sequence of slices
+        struct RowSerializer<'a, const N: usize>(&'a Vec<[u32; N]>);
+        impl<'a, const N: usize> serde::Serialize for RowSerializer<'a, N> {
+            fn serialize<S2: serde::Serializer>(&self, s: S2) -> Result<S2::Ok, S2::Error> {
+                use serde::ser::SerializeSeq;
+                let mut seq = s.serialize_seq(Some(self.0.len()))?;
+                for arr in self.0 {
+                    seq.serialize_element(arr.as_slice())?;
+                }
+                seq.end()
+            }
+        }
+        outer.serialize_element(&RowSerializer(row))?;
+    }
+    outer.end()
+}
+
 // Custom serialization for BitMatrix - convert to 2D array of 0s and 1s
 // Stored as rows[y][x] where each value is 0 (white) or 1 (black)
 pub fn serialize_bitmatrix<S>(

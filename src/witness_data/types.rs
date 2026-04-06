@@ -47,6 +47,27 @@ pub struct TableState {
     pub next_next_table: u32,
 }
 
+/// Mirrors the ZoKrates `BlockLookup` struct in block_measurement.zok.
+/// Represents the block structure of a 10-pixel chunk for ZK proof generation.
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[derive(Clone, Debug)]
+pub struct BlockLookup {
+    /// Binary encoding of the chunk pixels (bit i = pixel i); max 2^10 - 1 = 1023
+    pub binary_enc: u16,
+    /// Run-length blocks encoded in base B (big-endian); needs u128 for large B (e.g. G uses B=1080, 1080^10 > u64::MAX)
+    pub baseB_enc: u128,
+    /// Length of the last block; max chunk size is 10
+    pub remainder: u8,
+    /// Number of blocks in the chunk; max chunk size is 10
+    pub num_blocks: u8,
+    /// 1 if num_blocks is odd, 0 if even
+    pub num_blocks_is_odd: u8,
+    /// 1 if the last block is black, 0 if white
+    pub remainder_is_black: u8,
+    /// B^exp where exp = num_blocks - offset (context-dependent; offset = XNOR(remainder_is_black, prev_remainder_is_black, num_blocks_is_odd)); needs u128 for large B
+    pub power_of_B: u128,
+}
+
 // A dummy table state used before decoding actually begins
 pub(super) const ZERO_TABLE_STATE: TableState = TableState {
     base30_val: 0,

@@ -7,6 +7,7 @@
 
 use crate::common::BitMatrix;
 use crate::pdf417::decoder::pdf_417_codeword_decoder::sampleBitCounts;
+use crate::witness_data::types::BlockLookup;
 
 /// For each row in `image`, splits it into chunks of 10 pixels and computes:
 /// - `int_val`: the chunk as a binary integer (bit i = pixel i)
@@ -21,21 +22,24 @@ use crate::pdf417::decoder::pdf_417_codeword_decoder::sampleBitCounts;
 pub fn compute_lookups_and_decomps<const N: usize>(
     image: &BitMatrix,
     B: usize,
-) -> (Vec<[u128; 6]>, Vec<[u32; N]>) {
+) -> (Vec<Vec<BlockLookup>>, Vec<Vec<[u32; N]>>) {
     const L: usize = 10;
     let width = image.width() as usize;
     let height = image.height() as usize;
-    let mut lookups = Vec::new();
-    let mut decomps = Vec::new();
+    let mut lookups: Vec<Vec<BlockLookup>> = Vec::new();
+    let mut decomps: Vec<Vec<[u32; N]>> = Vec::new();
 
     for row in 0..height {
         let num_chunks = width.div_ceil(L);
+        let mut row_lookups = Vec::new();
+        let mut row_decomps: Vec<[u32; N]> = Vec::new();
+        let mut black_r: u8 = 0; // previous chunk's remainder_is_black; starts at 0 per row
         for chunk in 0..num_chunks {
             let start_col = chunk * L;
             let chunk_len = L.min(width - start_col);
 
             // Take chunk_len pixels and compute int as a binary string
-            let mut int_val: u128 = 0;
+            let mut int_val: u16 = 0;
             let mut pixels = [false; L];
             for i in 0..chunk_len {
                 let px = image.get((start_col + i) as u32, row as u32);
@@ -46,8 +50,8 @@ pub fn compute_lookups_and_decomps<const N: usize>(
             }
 
             // Compute blocks: lengths of runs of the same color
-            let mut blocks_vec: Vec<u128> = Vec::new();
-            let mut current_run: u128 = 1;
+            let mut blocks_vec: Vec<u8> = Vec::new();
+            let mut current_run: u8 = 1;
             for i in 1..chunk_len {
                 if pixels[i] == pixels[i - 1] {
                     current_run += 1;
@@ -61,29 +65,28 @@ pub fn compute_lookups_and_decomps<const N: usize>(
             // Encode blocks base B (big-endian: first block is most significant)
             let mut blocks_base_b: u128 = 0;
             for &b in &blocks_vec {
-                blocks_base_b = blocks_base_b * B as u128 + b;
+                blocks_base_b = blocks_base_b * B as u128 + b as u128;
             }
 
             // Base-B decomposition: blocks_vec padded with leading zeros to length N
-            let nb = blocks_vec.len();
-            assert!(nb <= N, "blocks_vec length {nb} exceeds decomp size {N}");
-            let mut decomp = [0; N];
-            let offset = N - nb;
+            let nb_usize = blocks_vec.len();
+            assert!(nb_usize <= N, "blocks_vec length {nb_usize} exceeds decomp size {N}");
+            let mut decomp = [0u32; N];
+            let decomp_offset = N - nb_usize;
             for (i, &b) in blocks_vec.iter().enumerate() {
-                decomp[offset + i] = b as u32;
+                decomp[decomp_offset + i] = b as u32;
             }
-            decomps.push(decomp);
+            row_decomps.push(decomp);
+
+            let nb = nb_usize as u8;
 
             // r = last block length
             let r = *blocks_vec.last().unwrap();
 
-            // nb = number of blocks
-            let nb = nb as u128;
-
             // odd = nb % 2 == 1
-            let odd = nb % 2;
+            let odd: u8 = nb % 2;
 
-            // block = 1 if last block is black, 0 if white
+            // remainder_is_black = 1 if last block is black, 0 if white
             // The last block has the same color as the first pixel when (nb-1) is even,
             // and the opposite color when (nb-1) is odd.
             let first_is_black = pixels[0];
@@ -92,10 +95,29 @@ pub fn compute_lookups_and_decomps<const N: usize>(
             } else {
                 !first_is_black
             };
-            let block: u128 = if last_is_black { 1 } else { 0 };
+            let remainder_is_black: u8 = if last_is_black { 1 } else { 0 };
 
-            lookups.push([int_val, blocks_base_b, r, nb, odd, block]);
+            // power_of_B = B^exp where exp = num_blocks - offset
+            // offset = XNOR(remainder_is_black, black_r, num_blocks_is_odd)
+            //        = 1 if even parity among the three bits, 0 if odd parity
+            let xor_abc = remainder_is_black ^ black_r ^ odd;
+            let offset: u8 = 1 - xor_abc; // 1 when even parity, 0 when odd parity
+            let exp = nb - offset;
+            let power_of_b = (B as u128).pow(exp as u32);
+
+            row_lookups.push(BlockLookup {
+                binary_enc: int_val,
+                baseB_enc: blocks_base_b,
+                remainder: r,
+                num_blocks: nb,
+                num_blocks_is_odd: odd,
+                remainder_is_black,
+                power_of_B: power_of_b,
+            });
+            black_r = remainder_is_black;
         }
+        lookups.push(row_lookups);
+        decomps.push(row_decomps);
     }
 
     (lookups, decomps)
@@ -287,13 +309,13 @@ mod tests {
 
         assert_eq!(lookups.len(), 1);
         assert_eq!(decomps.len(), 1);
-        let [int_val, blocks_base_b, r, nb, odd, block] = lookups[0];
-        assert_eq!(int_val, 0);
-        assert_eq!(blocks_base_b, 5); // B=27, single block of 5
-        assert_eq!(r, 5);
-        assert_eq!(nb, 1);
-        assert_eq!(odd, 1);
-        assert_eq!(block, 0); // last block is white
+        let l = &lookups[0][0];
+        assert_eq!(l.binary_enc, 0);
+        assert_eq!(l.baseB_enc, 5); // B=27, single block of 5
+        assert_eq!(l.remainder, 5);
+        assert_eq!(l.num_blocks, 1);
+        assert_eq!(l.num_blocks_is_odd, 1);
+        assert_eq!(l.remainder_is_black, 0); // last block is white
         assert_eq!(decomps[0], [0, 5]); // padded with one leading zero
     }
 
@@ -304,13 +326,13 @@ mod tests {
         let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 27);
 
         assert_eq!(lookups.len(), 1);
-        let [int_val, blocks_base_b, r, nb, odd, block] = lookups[0];
-        assert_eq!(int_val, 0b11111); // all 5 bits set
-        assert_eq!(blocks_base_b, 5);
-        assert_eq!(r, 5);
-        assert_eq!(nb, 1);
-        assert_eq!(odd, 1);
-        assert_eq!(block, 1); // last block is black
+        let l = &lookups[0][0];
+        assert_eq!(l.binary_enc, 0b11111); // all 5 bits set
+        assert_eq!(l.baseB_enc, 5);
+        assert_eq!(l.remainder, 5);
+        assert_eq!(l.num_blocks, 1);
+        assert_eq!(l.num_blocks_is_odd, 1);
+        assert_eq!(l.remainder_is_black, 1); // last block is black
         assert_eq!(decomps[0], [0, 5]);
     }
 
@@ -324,14 +346,14 @@ mod tests {
         let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 27);
 
         assert_eq!(lookups.len(), 1);
-        let [int_val, blocks_base_b, r, nb, odd, block] = lookups[0];
-        assert_eq!(int_val, 0b0000000111); // bits 0,1,2 set
-        assert_eq!(blocks_base_b, 3 * 27 + 7); // = 88
-        assert_eq!(r, 7);
-        assert_eq!(nb, 2);
-        assert_eq!(odd, 0);
-        // first_is_black=true, (nb-1)%2=1 → last is opposite → white → block=0
-        assert_eq!(block, 0);
+        let l = &lookups[0][0];
+        assert_eq!(l.binary_enc, 0b0000000111); // bits 0,1,2 set
+        assert_eq!(l.baseB_enc, 3 * 27 + 7); // = 88
+        assert_eq!(l.remainder, 7);
+        assert_eq!(l.num_blocks, 2);
+        assert_eq!(l.num_blocks_is_odd, 0);
+        // first_is_black=true, (nb-1)%2=1 → last is opposite → white → remainder_is_black=0
+        assert_eq!(l.remainder_is_black, 0);
         assert_eq!(decomps[0], [3, 7]);
     }
 
@@ -344,17 +366,17 @@ mod tests {
         let image = make_bitmatrix(&[row]);
         let (lookups, decomps) = compute_lookups_and_decomps::<4>(&image, 1080);
 
-        let [_int_val, blocks_base_b, r, nb, odd, block] = lookups[0];
-        assert_eq!(nb, 4);
-        assert_eq!(odd, 0);
-        assert_eq!(r, 3);
-        // first_is_black=false, (nb-1)%2=3%2=1 → last is opposite → black → block=1
-        assert_eq!(block, 1);
+        let l = &lookups[0][0];
+        assert_eq!(l.num_blocks, 4);
+        assert_eq!(l.num_blocks_is_odd, 0);
+        assert_eq!(l.remainder, 3);
+        // first_is_black=false, (nb-1)%2=3%2=1 → last is opposite → black → remainder_is_black=1
+        assert_eq!(l.remainder_is_black, 1);
         // decomp fills all N=4 slots, no leading zeros
         assert_eq!(decomps[0], [1, 2, 4, 3]);
-        // blocks_base_b = 1*1080^3 + 2*1080^2 + 4*1080 + 3
+        // baseB_enc = 1*1080^3 + 2*1080^2 + 4*1080 + 3
         let expected = 1u128 * 1080u128.pow(3) + 2 * 1080u128.pow(2) + 4 * 1080 + 3;
-        assert_eq!(blocks_base_b, expected);
+        assert_eq!(l.baseB_enc, expected);
     }
 
     #[test]
@@ -371,31 +393,32 @@ mod tests {
         let image = make_bitmatrix(&[row.as_slice()]);
         let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 27);
 
-        assert_eq!(lookups.len(), 2);
+        assert_eq!(lookups.len(), 1); // 1 row
+        assert_eq!(lookups[0].len(), 2); // 2 chunks
         assert_eq!(decomps.len(), 2);
 
         // Chunk 0
-        let [int_val0, blocks_base_b0, r0, nb0, odd0, block0] = lookups[0];
-        assert_eq!(int_val0, 3); // bits 0,1
-        assert_eq!(blocks_base_b0, 2 * 27 + 8); // = 62
-        assert_eq!(r0, 8);
-        assert_eq!(nb0, 2);
-        assert_eq!(odd0, 0);
-        assert_eq!(block0, 0); // first=black, (nb-1)%2=1 → last=white
+        let l0 = &lookups[0][0];
+        assert_eq!(l0.binary_enc, 3); // bits 0,1
+        assert_eq!(l0.baseB_enc, 2 * 27 + 8); // = 62
+        assert_eq!(l0.remainder, 8);
+        assert_eq!(l0.num_blocks, 2);
+        assert_eq!(l0.num_blocks_is_odd, 0);
+        assert_eq!(l0.remainder_is_black, 0); // first=black, (nb-1)%2=1 → last=white
         assert_eq!(decomps[0], [2, 8]);
 
         // Chunk 1
-        let [int_val1, blocks_base_b1, r1, nb1, odd1, block1] = lookups[1];
+        let l1 = &lookups[0][1];
         // pixels 5-9 of the chunk (cols 15-19) are black → bits 5-9 set
         assert_eq!(
-            int_val1,
+            l1.binary_enc,
             (1u128 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9)
         );
-        assert_eq!(blocks_base_b1, 5 * 27 + 5); // = 140
-        assert_eq!(r1, 5);
-        assert_eq!(nb1, 2);
-        assert_eq!(odd1, 0);
-        assert_eq!(block1, 1); // first=white, (nb-1)%2=1 → last=black
+        assert_eq!(l1.baseB_enc, 5 * 27 + 5); // = 140
+        assert_eq!(l1.remainder, 5);
+        assert_eq!(l1.num_blocks, 2);
+        assert_eq!(l1.num_blocks_is_odd, 0);
+        assert_eq!(l1.remainder_is_black, 1); // first=white, (nb-1)%2=1 → last=black
         assert_eq!(decomps[1], [5, 5]);
     }
 
@@ -408,10 +431,12 @@ mod tests {
         ]);
         let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 27);
 
-        assert_eq!(lookups.len(), 2);
+        assert_eq!(lookups.len(), 2); // 2 rows
+        assert_eq!(lookups[0].len(), 1); // 1 chunk per row
+        assert_eq!(lookups[1].len(), 1);
         assert_eq!(decomps.len(), 2);
-        assert_eq!(lookups[0][5], 1); // row 0: last block black
-        assert_eq!(lookups[1][5], 0); // row 1: last block white
+        assert_eq!(lookups[0][0].remainder_is_black, 1); // row 0: last block black
+        assert_eq!(lookups[1][0].remainder_is_black, 0); // row 1: last block white
         assert_eq!(decomps[0], [0, 5]);
         assert_eq!(decomps[1], [0, 5]);
     }
@@ -435,8 +460,8 @@ mod tests {
         // Use N=10 so even fully alternating rows (10 blocks) fit
         let (lookups, decomps) = compute_lookups_and_decomps::<10>(&image, B);
 
-        for (lookup, decomp) in lookups.iter().zip(decomps.iter()) {
-            let blocks_base_b = lookup[1];
+        for (row_lookups, decomp) in lookups.iter().flat_map(|r| r.iter()).zip(decomps.iter()) {
+            let blocks_base_b = row_lookups.baseB_enc;
             let reconstructed: u128 = decomp
                 .iter()
                 .fold(0u128, |acc, &d| acc * B as u128 + d as u128);
@@ -462,8 +487,8 @@ mod tests {
         let image = make_bitmatrix(rows);
         let (lookups, decomps) = compute_lookups_and_decomps::<10>(&image, 27);
 
-        for (lookup, decomp) in lookups.iter().zip(decomps.iter()) {
-            let nb = lookup[3] as usize;
+        for (lookup, decomp) in lookups.iter().flat_map(|r| r.iter()).zip(decomps.iter()) {
+            let nb = lookup.num_blocks as usize;
             let leading_zeros = decomp.iter().take_while(|&&d| d == 0).count();
             assert_eq!(leading_zeros, 10 - nb);
             // All non-leading-zero elements should be positive

@@ -13,14 +13,14 @@ use super::block_ops::{
     compute_words, compute_words_with_dummies,
 };
 use super::types::{
-    EC_TABLE_STATE, PAD_TABLE_STATE, PolynomialResult, RowIndicatorVars, SLD_TABLE_STATE,
-    TableState, ZERO_TABLE_STATE,
+    BlockLookup, EC_TABLE_STATE, PAD_TABLE_STATE, PolynomialResult, RowIndicatorVars,
+    SLD_TABLE_STATE, TableState, ZERO_TABLE_STATE,
 };
 use crate::common::BitMatrix;
 use crate::disjoint_set_polynomials::show_disjoint_from_valid_words;
 
 #[cfg(feature = "serde")]
-use super::serde_support::{serialize_bitmatrix, serialize_fr_vec, serialize_u32_array_vec};
+use super::serde_support::{serialize_bitmatrix, serialize_fr_vec, serialize_u32_array_vec_2d};
 
 const WB_NB: usize = 273;
 const G_NB: usize = 1080;
@@ -95,33 +95,33 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     // The well-behaved rows of the image (ie, rows that conform to pdf417 spec).
     // Some rows repeated to maintain the original image size.
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_bitmatrix"))]
-    pub wb_image: BitMatrix,
-    // The row number from the original image that row i in wb_image came from
+    pub well_behaved: BitMatrix,
+    // The row number from the original image that row i in well_behaved came from
     pub wb_inds: Vec<u32>,
     // How many times index i appears in wb_inds. Should be the same length as wb_inds.
     pub wb_ind_counts: Vec<u32>,
 
     // data that should be in the lookup table we use in the proof for the well-behaved image
-    pub wb_lookups: Vec<[u128; 6]>,
-    // the baseB decomp of each encoded chunk of blocks
-    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_u32_array_vec"))]
-    pub wb_baseB_decomps: Vec<[u32; WB_NB]>,
+    pub wb_lookups: Vec<Vec<BlockLookup>>,
+    // the baseB decomp of each encoded chunk of blocks; indexed [row][chunk][element]
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_u32_array_vec_2d"))]
+    pub wb_baseB_decomps: Vec<Vec<[u32; WB_NB]>>,
 
     // The "garbage" rows of the image that will not decode
     // Will always have exactly 89 rows. Padded with zero rows.
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_bitmatrix"))]
-    pub garbage_image: BitMatrix,
-    // The row number from the original image that row i in garbage_image came from
+    pub garbage: BitMatrix,
+    // The row number from the original image that row i in garbage came from
     // If it's a zero row, index is -1
     pub garbage_inds: Vec<i32>,
-    // How many zero rows appear in garbage_image
+    // How many zero rows appear in garbage
     pub num_zero_rows: u32,
 
     // data that should be in the lookup table we use in the proof for the garbage image
-    pub garbage_lookups: Vec<[u128; 6]>,
-    // the baseB decomp of each encoded chunk of blocks
-    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_u32_array_vec"))]
-    pub g_baseB_decomps: Vec<[u32; G_NB]>,
+    pub g_lookups: Vec<Vec<BlockLookup>>,
+    // the baseB decomp of each encoded chunk of blocks; indexed [row][chunk][element]
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_u32_array_vec_2d"))]
+    pub g_baseB_decomps: Vec<Vec<[u32; G_NB]>>,
 
     pub wb_blocks: Vec<Vec<u32>>,
     pub wb_normalized_blocks: Vec<Vec<[u32; 8]>>,
@@ -132,7 +132,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
     pub wb_disjoint_set_poly_g: Vec<F>,
 
-    pub garbage_blocks: Vec<Vec<u32>>,
+    pub g_blocks: Vec<Vec<u32>>,
     pub garbage_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
     // coefficients of polynomials showing that gcd(garbage, valid_words) = 1
@@ -184,9 +184,9 @@ impl FinalizedWitnessData<Fr> {
         height: usize,
         image: Vec<Vec<u8>>,
         bin_image: BitMatrix,
-        wb_image: BitMatrix,
+        well_behaved: BitMatrix,
         wb_inds: Vec<u32>,
-        garbage_image: BitMatrix,
+        garbage: BitMatrix,
         garbage_inds: Vec<i32>,
         row_count: u32,
         column_count: u32,
@@ -224,18 +224,19 @@ impl FinalizedWitnessData<Fr> {
             .map(|target| wb_inds.iter().filter(|&&x| x == *target).count() as u32)
             .collect();
         let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
-        let (wb_lookups, wb_baseB_decomps) = compute_lookups_and_decomps::<WB_NB>(&wb_image, WB_B);
-        let (garbage_lookups, g_baseB_decomps) =
-            compute_lookups_and_decomps::<G_NB>(&garbage_image, G_B);
+        let (wb_lookups, wb_baseB_decomps) = compute_lookups_and_decomps::<WB_NB>(&well_behaved, WB_B);
+        let (g_lookups, g_baseB_decomps) =
+            compute_lookups_and_decomps::<G_NB>(&garbage, G_B);
 
-        let wb_blocks = compute_blocks(&wb_image, WB_NB);
+        let wb_blocks = compute_blocks(&well_behaved, WB_NB);
         let wb_normalized_blocks = compute_normalized_blocks(&wb_blocks);
-        let garbage_blocks = compute_blocks(&garbage_image, G_NB);
-        let garbage_normalized_blocks = compute_normalized_blocks(&garbage_blocks);
+        let g_blocks = compute_blocks(&garbage, G_NB);
+        let garbage_normalized_blocks = compute_normalized_blocks(&g_blocks);
 
         let garbage_words = compute_words(&garbage_normalized_blocks);
         let (garbage_disjoint_set_poly_f, garbage_disjoint_set_poly_g) =
             show_disjoint_from_valid_words(garbage_words.into_iter().flatten().collect());
+
 
         let (words_with_dummies, wb_garbage) =
             compute_words_with_dummies(&wb_normalized_blocks, &wb_inds);
@@ -248,21 +249,21 @@ impl FinalizedWitnessData<Fr> {
             height,
             image,
             bin_image,
-            wb_image,
+            well_behaved,
             wb_inds,
             wb_ind_counts,
             wb_lookups,
             wb_baseB_decomps,
-            garbage_image,
+            garbage,
             garbage_inds,
             num_zero_rows,
-            garbage_lookups,
+            g_lookups,
             g_baseB_decomps,
             wb_blocks,
             wb_normalized_blocks,
             wb_disjoint_set_poly_f,
             wb_disjoint_set_poly_g,
-            garbage_blocks,
+            g_blocks,
             garbage_normalized_blocks,
             garbage_disjoint_set_poly_f,
             garbage_disjoint_set_poly_g,
@@ -284,9 +285,9 @@ impl FinalizedWitnessData<Fr> {
     pub fn from_witness_data(witness_data: &WitnessData) -> Result<Self, String> {
         let bin_image = Option::ok_or(witness_data.bin_image.clone(), "no binarized image data")?;
 
-        let wb_image = Option::ok_or(witness_data.wb_image.clone(), "no wb_image data")?;
+        let well_behaved = Option::ok_or(witness_data.wb_image.clone(), "no wb_image data")?;
         let wb_inds = Option::ok_or(witness_data.wb_inds.clone(), "no wb_inds data")?;
-        let garbage_image =
+        let garbage =
             Option::ok_or(witness_data.garbage_image.clone(), "no garbage_image data")?;
         let garbage_inds =
             Option::ok_or(witness_data.garbage_inds.clone(), "no garbage_inds data")?;
@@ -335,9 +336,9 @@ impl FinalizedWitnessData<Fr> {
             witness_data.height,
             witness_data.image.clone(),
             bin_image,
-            wb_image,
+            well_behaved,
             wb_inds,
-            garbage_image,
+            garbage,
             garbage_inds,
             row_count,
             column_count,

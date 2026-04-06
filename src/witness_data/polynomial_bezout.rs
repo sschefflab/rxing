@@ -6,11 +6,11 @@
  *
  * We run the EEA to solve for f, then recover g = (1 - f * a) / t.
  *
- * Uses ark-ff / ark-poly. The FftField bound is required to unlock ark-poly's
- * built-in Add, Sub, Mul, and divide_with_q_and_r — ark_ed25519::Fr satisfies it.
+ * Uses ark-ff / ark-poly. naive_mul and divide_with_q_and_r both only require
+ * F: Field (not FftField), so this works with non-FFT-smooth fields like Ristretto255.
  */
 
-use ark_ff::{FftField, Zero};
+use ark_ff::{Field, Zero};
 use ark_poly::{
     univariate::{DenseOrSparsePolynomial, DensePolynomial},
     DenseUVPolynomial, Polynomial,
@@ -19,12 +19,12 @@ use ark_poly::{
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Multiplies every coefficient of `p` by the scalar `s`.
-fn scale<F: FftField>(p: &DensePolynomial<F>, s: F) -> DensePolynomial<F> {
+fn scale<F: Field>(p: &DensePolynomial<F>, s: F) -> DensePolynomial<F> {
     DensePolynomial::from_coefficients_vec(p.coeffs.iter().map(|c| *c * s).collect())
 }
 
 /// Polynomial long division: returns (quotient, remainder).
-fn divmod<F: FftField>(
+fn divmod<F: Field>(
     num: &DensePolynomial<F>,
     den: &DensePolynomial<F>,
 ) -> (DensePolynomial<F>, DensePolynomial<F>) {
@@ -37,12 +37,12 @@ fn divmod<F: FftField>(
 
 /// Builds a monic polynomial whose roots are exactly `roots`:
 ///   result(x) = (x - roots[0]) * (x - roots[1]) * ... * (x - roots[n-1])
-pub fn poly_from_roots<F: FftField>(roots: &[F]) -> DensePolynomial<F> {
+pub fn poly_from_roots<F: Field>(roots: &[F]) -> DensePolynomial<F> {
     roots.iter().fold(
         DensePolynomial::from_coefficients_vec(vec![F::one()]),
         |acc, &root| {
             let factor = DensePolynomial::from_coefficients_vec(vec![-root, F::one()]);
-            &acc * &factor
+            acc.naive_mul(&factor)
         },
     )
 }
@@ -55,7 +55,7 @@ pub fn poly_from_roots<F: FftField>(roots: &[F]) -> DensePolynomial<F> {
 ///   1. Run the EEA tracking only the Bezout coefficient for `a` to find f.
 ///   2. Normalize f (the EEA produces the gcd up to a scalar, not necessarily 1).
 ///   3. Recover g = (1 - f * a) / t.
-pub fn bezout<F: FftField>(
+pub fn bezout<F: Field>(
     a: &DensePolynomial<F>,
     t: &DensePolynomial<F>,
 ) -> (DensePolynomial<F>, DensePolynomial<F>) {
@@ -69,7 +69,7 @@ pub fn bezout<F: FftField>(
     while !r_curr.is_zero() {
         let (q, r_next) = divmod(&r_prev, &r_curr);
         // f_next = f_prev - q * f_curr
-        let f_next = &f_prev - &(&q * &f_curr);
+        let f_next = &f_prev - &q.naive_mul(&f_curr);
         r_prev = r_curr;
         r_curr = r_next;
         f_prev = f_curr;
@@ -91,7 +91,7 @@ pub fn bezout<F: FftField>(
 
     // Recover g = (1 - f * a) / t
     let one = DensePolynomial::from_coefficients_vec(vec![F::one()]);
-    let one_minus_fa = &one - &(&f * a);
+    let one_minus_fa = &one - &f.naive_mul(a);
     let (g, remainder) = divmod(&one_minus_fa, t);
     assert!(remainder.is_zero(), "bezout: (1 - f*a) not divisible by t");
 
@@ -118,7 +118,7 @@ mod tests {
         let (f, g) = bezout(&a, &t);
 
         // Verify f * a + g * t = 1
-        let lhs = &(&f * &a) + &(&g * &t);
+        let lhs = &f.naive_mul(&a) + &g.naive_mul(&t);
         assert_eq!(lhs.degree(), 0, "f*a + g*t must be a constant");
         assert_eq!(lhs.coeffs[0], Fr::one(), "f*a + g*t must equal 1");
     }
