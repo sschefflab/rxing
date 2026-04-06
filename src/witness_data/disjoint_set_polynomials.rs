@@ -1,4 +1,4 @@
-use ark_bls12_381::Fr;
+use ark_ed25519::Fr;
 use ark_poly::univariate::DensePolynomial;
 use std::sync::OnceLock;
 

@@ -1,13 +1,13 @@
 /*
  * Utilities for using Bezout's Identity / Extended Euclidean Algorithm to
  * compute the coefficients f, g such that f * a + g * t = gcd(a, t) = 1 for
- * polynomials a and t over the ZoKrates prime field (BLS12-381 scalar field,
- * modulus 52435875175126190479447740508185965837690552500527637822603658699938581184513).
+ * polynomials a and t over the Ristretto255 scalar field (Curve25519 scalar field,
+ * modulus 7237005577332262213973186563042994240857116359379907606001950938285454250989).
  *
  * We run the EEA to solve for f, then recover g = (1 - f * a) / t.
  *
  * Uses ark-ff / ark-poly. The FftField bound is required to unlock ark-poly's
- * built-in Add, Sub, Mul, and divide_with_q_and_r — ark_bls12_381::Fr satisfies it.
+ * built-in Add, Sub, Mul, and divide_with_q_and_r — ark_ed25519::Fr satisfies it.
  */
 
 use ark_ff::{FftField, Zero};
@@ -103,7 +103,7 @@ pub fn bezout<F: FftField>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ark_bls12_381::Fr;
+    use ark_ed25519::Fr;
     use ark_ff::One;
 
     #[test]

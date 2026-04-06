@@ -2,7 +2,7 @@
  * FinalizedWitnessData: immutable, fully-populated witness data ready for ZK proof generation.
  */
 
-use ark_bls12_381::Fr;
+use ark_ed25519::Fr;
 use ark_ff::{FftField, PrimeField};
 #[cfg(feature = "serde")]
 use serde::Serialize;

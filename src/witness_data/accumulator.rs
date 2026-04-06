@@ -5,7 +5,7 @@
 use super::finalized::FinalizedWitnessData;
 use super::types::{PolynomialResult, RowIndicatorVars, TableState};
 use crate::common::BitMatrix;
-use ark_bls12_381::Fr;
+use ark_ed25519::Fr;
 
 /**
  * Holds witness data for zero-knowledge proof generation during barcode processing.
