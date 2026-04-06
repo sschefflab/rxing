@@ -90,7 +90,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     /// Pixels are represented as bits: 1 = black, 0 = white
     /// Serialized as a 2D array of 0s and 1s: binarized_image[row][col]
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_bitmatrix"))]
-    pub binarized_image: BitMatrix,
+    pub bin_image: BitMatrix,
 
     // The well-behaved rows of the image (ie, rows that conform to pdf417 spec).
     // Some rows repeated to maintain the original image size.
@@ -183,7 +183,7 @@ impl FinalizedWitnessData<Fr> {
         width: usize,
         height: usize,
         image: Vec<Vec<u8>>,
-        binarized_image: BitMatrix,
+        bin_image: BitMatrix,
         wb_image: BitMatrix,
         wb_inds: Vec<u32>,
         garbage_image: BitMatrix,
@@ -247,7 +247,7 @@ impl FinalizedWitnessData<Fr> {
             width,
             height,
             image,
-            binarized_image,
+            bin_image,
             wb_image,
             wb_inds,
             wb_ind_counts,
@@ -282,10 +282,7 @@ impl FinalizedWitnessData<Fr> {
     }
 
     pub fn from_witness_data(witness_data: &WitnessData) -> Result<Self, String> {
-        let binarized_image = Option::ok_or(
-            witness_data.binarized_image.clone(),
-            "no binarized image data",
-        )?;
+        let bin_image = Option::ok_or(witness_data.bin_image.clone(), "no binarized image data")?;
 
         let wb_image = Option::ok_or(witness_data.wb_image.clone(), "no wb_image data")?;
         let wb_inds = Option::ok_or(witness_data.wb_inds.clone(), "no wb_inds data")?;
@@ -337,7 +334,7 @@ impl FinalizedWitnessData<Fr> {
             witness_data.width,
             witness_data.height,
             witness_data.image.clone(),
-            binarized_image,
+            bin_image,
             wb_image,
             wb_inds,
             garbage_image,

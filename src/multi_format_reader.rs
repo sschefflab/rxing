@@ -19,9 +19,9 @@ use std::collections::HashSet;
 use crate::common::Result;
 use crate::qrcode::cpp_port::QrReader;
 use crate::{
-    BarcodeFormat, Binarizer, BinaryBitmap, Exceptions, RXingResult, Reader, WitnessData, aztec::AztecReader,
-    datamatrix::DataMatrixReader, maxicode::MaxiCodeReader, oned::MultiFormatOneDReader,
-    pdf417::PDF417Reader, qrcode::QRCodeReader,
+    BarcodeFormat, Binarizer, BinaryBitmap, Exceptions, RXingResult, Reader, WitnessData,
+    aztec::AztecReader, datamatrix::DataMatrixReader, maxicode::MaxiCodeReader,
+    oned::MultiFormatOneDReader, pdf417::PDF417Reader, qrcode::QRCodeReader,
 };
 use crate::{DecodeHints, ONE_D_FORMATS};
 
@@ -131,7 +131,7 @@ impl MultiFormatReader {
         // Capture the binarized image for witness data before decoding
         // If we need more data that gets exposed inside the detector, it would be worth just threading this through
         if let Some(wd) = witness_data.as_deref_mut() {
-            wd.set_binarized_image(image.get_black_matrix().clone());
+            wd.set_bin_image(image.get_black_matrix().clone());
         }
 
         let res = self.decode_formats(image, witness_data.as_deref_mut());
@@ -221,9 +221,11 @@ impl MultiFormatReader {
                         witness_data.as_deref_mut(),
                     ),
                     #[cfg(feature = "experimental_features")]
-                    BarcodeFormat::DXFilmEdge => {
-                        ODReader::new(&self.hints).decode_with_hints(image, &self.hints, witness_data.as_deref_mut(),)
-                    },
+                    BarcodeFormat::DXFilmEdge => ODReader::new(&self.hints).decode_with_hints(
+                        image,
+                        &self.hints,
+                        witness_data.as_deref_mut(),
+                    ),
                     _ => Err(Exceptions::UNSUPPORTED_OPERATION),
                 };
                 if res.is_ok() {

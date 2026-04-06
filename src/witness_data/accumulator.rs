@@ -2,10 +2,10 @@
  * WitnessData: mutable accumulator built up during PDF417 decoding.
  */
 
-use crate::common::BitMatrix;
-use super::types::{PolynomialResult, RowIndicatorVars, TableState};
-use ark_bls12_381::Fr;
 use super::finalized::FinalizedWitnessData;
+use super::types::{PolynomialResult, RowIndicatorVars, TableState};
+use crate::common::BitMatrix;
+use ark_bls12_381::Fr;
 
 /**
  * Holds witness data for zero-knowledge proof generation during barcode processing.
@@ -31,7 +31,7 @@ pub struct WitnessData {
 
     /// The binarized image after applying the threshold
     /// Pixels are represented as bits: true/1 = black, false/0 = white
-    pub binarized_image: Option<BitMatrix>,
+    pub bin_image: Option<BitMatrix>,
 
     pub wb_image: Option<BitMatrix>,
     pub wb_inds: Option<Vec<u32>>,
@@ -99,7 +99,7 @@ impl WitnessData {
             width,
             height,
             image,
-            binarized_image: None,
+            bin_image: None,
             wb_image: None,
             wb_inds: None,
             garbage_image: None,
@@ -141,12 +141,12 @@ impl WitnessData {
     /**
      * Returns a reference to the binarized image.
      */
-    pub fn binarized_image(&self) -> &Option<BitMatrix> {
-        &self.binarized_image
+    pub fn bin_image(&self) -> &Option<BitMatrix> {
+        &self.bin_image
     }
 
-    pub fn set_binarized_image(&mut self, binarized_image: BitMatrix) {
-        self.binarized_image = Some(binarized_image)
+    pub fn set_bin_image(&mut self, bin_image: BitMatrix) {
+        self.bin_image = Some(bin_image)
     }
 
     pub fn set_barcode_metadata(&mut self, row_count: u32, column_count: u32, ec_level: u32) {
@@ -216,8 +216,8 @@ impl WitnessData {
      * `true` if the pixel is black, `false` if white
      */
     pub fn get_binarized_pixel(&self, x: usize, y: usize) -> Option<bool> {
-        match &self.binarized_image {
-            Some(binarized_image) => Some(binarized_image.get(x as u32, y as u32)),
+        match &self.bin_image {
+            Some(bin_image) => Some(bin_image.get(x as u32, y as u32)),
             None => None,
         }
     }
@@ -245,7 +245,7 @@ mod tests {
         // 128+ stay white
 
         let mut witness = WitnessData::new(4, 4, image.clone());
-        witness.set_binarized_image(binarized);
+        witness.set_bin_image(binarized);
 
         assert_eq!(witness.width(), 4);
         assert_eq!(witness.height(), 4);
@@ -275,7 +275,7 @@ mod tests {
         assert!(witness.finalize().is_err());
 
         // Populate required fields
-        witness.set_binarized_image(BitMatrix::new(2, 2).unwrap());
+        witness.set_bin_image(BitMatrix::new(2, 2).unwrap());
         witness.wb_image = Some(BitMatrix::new(2, 2).unwrap());
         witness.wb_inds = Some(vec![0, 1]);
         witness.garbage_image = Some(BitMatrix::new(2, 89).unwrap());
