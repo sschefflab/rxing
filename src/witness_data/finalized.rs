@@ -168,7 +168,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     /// Well-behaved words with dummies zeroed out. Shape: [R][WB_CW].
     ///   - Duplicate rows (per wb_inds) are entirely zeroed out.
     ///   - Words that don't decode exactly and aren't START/STOP are replaced with 0.
-    pub words_with_dummies: Vec<Vec<u32>>,
+    pub words_with_dummies: Vec<Vec<u64>>,
 
     /// All codewords (GF(929) elements) in the barcode, plus 919 for start, stop, and garbage.
     /// Shape: [R][WB_CW], same as words_with_dummies.

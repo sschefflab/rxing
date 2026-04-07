@@ -337,8 +337,8 @@ fn get_valid_words_poly() -> &'static DensePolynomial<Fr> {
 ///
 /// gcd(a, t) = 1 iff a_set and VALID_WORDS share no common roots, i.e. every element
 /// of a_set is a valid codeword.
-pub fn show_disjoint_from_valid_words(a_set: Vec<u32>) -> (Vec<Fr>, Vec<Fr>) {
-    let a_set_f: Vec<Fr> = a_set.iter().map(|&v| Fr::from(v as u64)).collect();
+pub fn show_disjoint_from_valid_words(a_set: Vec<u64>) -> (Vec<Fr>, Vec<Fr>) {
+    let a_set_f: Vec<Fr> = a_set.iter().map(|&v| Fr::from(v)).collect();
     let t = get_valid_words_poly();
     let a = poly_from_roots(&a_set_f);
     let (f, g) = bezout(&a, t);

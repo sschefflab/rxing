@@ -1,10 +1,7 @@
 // Custom serialization for Vec<F> where F: PrimeField - convert each field element to a
 // decimal string. ark field types don't implement serde::Serialize, so we represent each
 // element as its canonical decimal integer string.
-pub fn serialize_fr_vec<F, S>(
-    elems: &[F],
-    serializer: S,
-) -> Result<S::Ok, S::Error>
+pub fn serialize_fr_vec<F, S>(elems: &[F], serializer: S) -> Result<S::Ok, S::Error>
 where
     F: ark_ff::PrimeField,
     S: serde::Serializer,
@@ -14,24 +11,6 @@ where
     let mut seq = serializer.serialize_seq(Some(elems.len()))?;
     for elem in elems {
         seq.serialize_element(&elem.into_bigint().to_string())?;
-    }
-    seq.end()
-}
-
-// Custom serialization for Vec<[u32; N]> — serde only auto-implements Serialize for arrays
-// up to size 32, so we serialize each fixed-size array as a slice.
-pub fn serialize_u32_array_vec<const N: usize, S>(
-    vec: &Vec<[u32; N]>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    use serde::ser::SerializeSeq;
-
-    let mut seq = serializer.serialize_seq(Some(vec.len()))?;
-    for arr in vec {
-        seq.serialize_element(arr.as_slice())?;
     }
     seq.end()
 }

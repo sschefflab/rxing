@@ -6,7 +6,6 @@
  */
 
 use crate::common::BitMatrix;
-use crate::pdf417::decoder::pdf_417_codeword_decoder::sampleBitCounts;
 use crate::witness_data::types::BlockLookup;
 
 /// For each row in `image`, splits it into chunks of 10 pixels and computes:
@@ -163,8 +162,8 @@ pub const DUMMY_CW: u32 = 919;
 
 /// Converts a normalized 8-element block into a single integer by concatenating digits.
 /// e.g. [1,2,3,4,4,3,2,1] → 12344321
-pub fn get_word(block: &[u32; 8]) -> u32 {
-    block.iter().fold(0u32, |acc, &b| acc * 10 + b)
+pub fn get_word(block: &[u32; 8]) -> u64 {
+    block.iter().fold(0u64, |acc, &b| acc * 10 + b as u64)
 }
 
 /// Converts a normalized 8-element block to its binary symbol value (same logic as
@@ -189,9 +188,9 @@ fn decodes_exactly(block: &[u32; 8]) -> bool {
 /// Returns the ext_codeword for a (block, word_with_dummy) pair.
 ///   - word == 0, START_WORD, or STOP_WORD → 919 (dummy)
 ///   - otherwise → the PDF417 codeword index (0–928) from the lookup table
-fn ext_codeword_of(block: &[u32; 8], word: u32) -> u32 {
+fn ext_codeword_of(block: &[u32; 8], word: u64) -> u32 {
     use crate::pdf417::pdf_417_common;
-    if word == 0 || word == START_WORD || word == STOP_WORD {
+    if word == 0 || word == START_WORD as u64 || word == STOP_WORD as u64 {
         return DUMMY_CW;
     }
     let cw = pdf_417_common::getCodeword(bit_value_of_block(block));
@@ -205,7 +204,7 @@ fn ext_codeword_of(block: &[u32; 8], word: u32) -> u32 {
 /// Computes ext_codewords[R][WB_CW] from normalized_blocks and words_with_dummies.
 pub fn compute_ext_codewords(
     normalized_blocks: &[Vec<[u32; 8]>],
-    words_with_dummies: &[Vec<u32>],
+    words_with_dummies: &[Vec<u64>],
 ) -> Vec<Vec<u32>> {
     normalized_blocks
         .iter()
@@ -220,8 +219,8 @@ pub fn compute_ext_codewords(
         .collect()
 }
 
-/// Computes raw words from normalized_blocks: each [u32; 8] → single u32 word.
-pub fn compute_words(normalized_blocks: &[Vec<[u32; 8]>]) -> Vec<Vec<u32>> {
+/// Computes raw words from normalized_blocks: each [u32; 8] → single u64 word.
+pub fn compute_words(normalized_blocks: &[Vec<[u32; 8]>]) -> Vec<Vec<u64>> {
     normalized_blocks
         .iter()
         .map(|row| row.iter().map(|block| get_word(block)).collect())
@@ -236,7 +235,7 @@ pub fn compute_words(normalized_blocks: &[Vec<[u32; 8]>]) -> Vec<Vec<u32>> {
 pub fn compute_words_with_dummies(
     normalized_blocks: &[Vec<[u32; 8]>],
     wb_inds: &[u32],
-) -> (Vec<Vec<u32>>, Vec<u32>) {
+) -> (Vec<Vec<u64>>, Vec<u64>) {
     let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
     let mut garbage = Vec::new();
     let words_with_dummies = normalized_blocks
@@ -245,12 +244,12 @@ pub fn compute_words_with_dummies(
         .map(|(row, &orig_idx)| {
             if !seen.insert(orig_idx) {
                 // Duplicate row — zero everything out
-                vec![0u32; row.len()]
+                vec![0u64; row.len()]
             } else {
                 row.iter()
                     .map(|block| {
                         let word = get_word(block);
-                        if word == START_WORD || word == STOP_WORD || decodes_exactly(block) {
+                        if word == START_WORD as u64 || word == STOP_WORD as u64 || decodes_exactly(block) {
                             word
                         } else {
                             garbage.push(word);
@@ -264,16 +263,34 @@ pub fn compute_words_with_dummies(
     (words_with_dummies, garbage)
 }
 
-/// For each row of blocks, splits into non-overlapping windows of 8 and runs
-/// `sampleBitCounts` on each window that contains no zeros.
+/// Proportionally normalizes an 8-element block window so that each element
+/// satisfies `|blocks[i] * sum - 17 * result[i]| <= 8`. Returns all zeros
+/// for a zero window (sum == 0).
+fn proportional_normalize(window: &[u32]) -> [u32; 8] {
+    let sum: u64 = window.iter().map(|&x| x as u64).sum();
+    if sum == 0 {
+        return [0u32; 8];
+    }
+    let mut result = [0u32; 8];
+    for (i, &b) in window.iter().enumerate() {
+        result[i] = ((b as u64 * sum + 8) / 17) as u32;
+    }
+    result
+}
+
+/// For each row of blocks, splits into non-overlapping windows of 8 and
+/// proportionally normalizes each window.
 pub fn compute_normalized_blocks(blocks: &[Vec<u32>]) -> Vec<Vec<[u32; 8]>> {
     blocks
         .iter()
         .map(|row| {
-            row.chunks_exact(8)
-                .filter(|window| window.iter().all(|&x| x != 0))
-                .map(|window| sampleBitCounts(window))
-                .collect()
+            let num_chunks = (row.len() + 7) / 8;
+            let mut result: Vec<[u32; 8]> = row
+                .chunks_exact(8)
+                .map(|window| proportional_normalize(window))
+                .collect();
+            result.resize(num_chunks, [0u32; 8]);
+            result
         })
         .collect()
 }
