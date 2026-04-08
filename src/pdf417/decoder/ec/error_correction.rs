@@ -79,6 +79,7 @@ pub fn decode(
 
     // Write polynomial results to witness data if provided
     if let Some(wd) = witness_data {
+        polynomial_results.reverse();
         wd.set_polynomial_results(polynomial_results);
     }
 
@@ -244,4 +245,28 @@ fn findErrorMagnitudes(
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::witness_data::accumulator::WitnessData;
+
+    #[test]
+    fn test_polynomial_results_length_is_512() {
+        // Simple no-error case: codewords followed by EC codewords
+        // Use ec_level 2 → numECCodewords = 8
+        let num_ec = 8u32;
+        let mut received = vec![0u32; (num_ec + 4) as usize]; // 4 data + 8 EC
+        // No errors, so EC codewords are already correct (all zeros = trivial)
+        let mut erasures = vec![];
+        let image = vec![vec![0u8; 2]; 2];
+        let mut wd = WitnessData::new(2, 2, image);
+        decode(&mut received, num_ec, &mut erasures, Some(&mut wd)).expect("decode should succeed");
+        assert_eq!(
+            wd.polynomial_results.as_ref().unwrap().len(),
+            512,
+            "polynomial_results must always have exactly 512 entries"
+        );
+    }
 }

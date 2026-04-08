@@ -156,6 +156,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub corrected_codewords: Vec<u32>,
 
     /// Results from error correction polynomial evaluations
+    #[cfg_attr(feature = "serde", serde(rename = "poly_witness"))]
     pub polynomial_results: Vec<PolynomialResult>,
 
     /// Character interpretation states from PDF417 Text Compaction Mode decoding.
@@ -296,12 +297,24 @@ impl FinalizedWitnessData<Fr> {
             "no all left row indicators data",
         )?;
 
-        let codewords = Option::ok_or(witness_data.codewords.clone(), "no codewords data")?;
+        // W = 2700 matches the ZoKrates circuit constant. The circuit evaluates
+        // sum(codewords[j] * (3^i)^(W-1-j)), so j=0 is the highest power. To match rxing's
+        // descending evaluation exactly (without a scale factor), zeros go at the front (high
+        // powers) and actual codewords at the end (low powers).
+        const ZOK_W: usize = 2700;
+        let raw_codewords =
+            Option::ok_or(witness_data.codewords.clone(), "no codewords data")?;
+        let n = raw_codewords.len().min(ZOK_W);
+        let mut codewords = vec![0u32; ZOK_W];
+        codewords[ZOK_W - n..].copy_from_slice(&raw_codewords[..n]);
 
-        let corrected_codewords = Option::ok_or(
+        let raw_corrected = Option::ok_or(
             witness_data.corrected_codewords.clone(),
             "no corrected codewords data",
         )?;
+        let nc = raw_corrected.len().min(ZOK_W);
+        let mut corrected_codewords = vec![0u32; ZOK_W];
+        corrected_codewords[ZOK_W - nc..].copy_from_slice(&raw_corrected[..nc]);
 
         let polynomial_results = Option::ok_or(
             witness_data.polynomial_results.clone(),
