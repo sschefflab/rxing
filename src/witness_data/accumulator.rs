@@ -3,7 +3,7 @@
  */
 
 use super::finalized::FinalizedWitnessData;
-use super::types::{PolynomialResult, RowIndicatorVars, TableState};
+use super::types::{BarcodeStats, PolynomialResult, RowIndicatorVars, TableState};
 use crate::common::BitMatrix;
 use ark_ed25519::Fr;
 
@@ -39,9 +39,7 @@ pub struct WitnessData {
     pub garbage_inds: Option<Vec<i32>>,
 
     /// Barcode metadata values: how many rows and columns it has, and its error correction level
-    pub row_count: Option<u32>,
-    pub column_count: Option<u32>,
-    pub ec_level: Option<u32>,
+    pub stats: Option<BarcodeStats>,
 
     pub row_indicators: Option<RowIndicatorVars>,
 
@@ -104,9 +102,7 @@ impl WitnessData {
             wb_inds: None,
             garbage_image: None,
             garbage_inds: None,
-            row_count: None,
-            column_count: None,
-            ec_level: None,
+            stats: None,
             row_indicators: None,
             all_left_row_indicators: None,
             codewords: None,
@@ -149,10 +145,15 @@ impl WitnessData {
         self.bin_image = Some(bin_image)
     }
 
-    pub fn set_barcode_metadata(&mut self, row_count: u32, column_count: u32, ec_level: u32) {
-        self.row_count = Some(row_count);
-        self.column_count = Some(column_count);
-        self.ec_level = Some(ec_level);
+    pub fn set_barcode_stats(&mut self, row_count: u8, column_count: u8, ec_level: u8) {
+        let num_ec_codewords = 2u16.pow((ec_level + 1) as u32);
+        let stats: BarcodeStats = BarcodeStats {
+            num_rows: row_count,
+            num_cols: column_count,
+            ec_level,
+            num_ec_codewords,
+        };
+        self.stats = Some(stats);
     }
 
     pub fn set_row_indicators(&mut self, row_indicators: RowIndicatorVars) {
@@ -280,7 +281,7 @@ mod tests {
         witness.wb_inds = Some(vec![0, 1]);
         witness.garbage_image = Some(BitMatrix::new(2, 89).unwrap());
         witness.garbage_inds = Some(vec![-1; 89]);
-        witness.set_barcode_metadata(30, 10, 2);
+        witness.set_barcode_stats(30, 10, 2);
         witness.set_row_indicators(RowIndicatorVars {
             l0: 1,
             l3: 1,
@@ -305,6 +306,6 @@ mod tests {
         let finalized = witness
             .finalize()
             .expect("Should finalize with all fields set");
-        assert_eq!(finalized.row_count, 30);
+        assert_eq!(finalized.stats.num_rows, 30);
     }
 }

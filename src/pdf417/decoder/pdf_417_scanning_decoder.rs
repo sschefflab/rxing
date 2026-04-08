@@ -179,10 +179,10 @@ pub fn decode(
 
     // Write barcode metadata to witness data if provided
     if let Some(wd) = witness_data.as_deref_mut() {
-        wd.set_barcode_metadata(
-            detectionRXingResult.getBarcodeRowCount(),
-            detectionRXingResult.getBarcodeColumnCount() as u32,
-            detectionRXingResult.getBarcodeECLevel(),
+        wd.set_barcode_stats(
+            detectionRXingResult.getBarcodeRowCount() as u8,
+            detectionRXingResult.getBarcodeColumnCount() as u8,
+            detectionRXingResult.getBarcodeECLevel() as u8,
         );
     }
 

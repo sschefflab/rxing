@@ -13,7 +13,7 @@ use super::block_ops::{
     compute_words, compute_words_with_dummies,
 };
 use super::types::{
-    BlockLookup, EC_TABLE_STATE, PAD_TABLE_STATE, PolynomialResult, RowIndicatorVars,
+    BarcodeStats, BlockLookup, EC_TABLE_STATE, PAD_TABLE_STATE, PolynomialResult, RowIndicatorVars,
     SLD_TABLE_STATE, TableState, ZERO_TABLE_STATE,
 };
 use crate::common::BitMatrix;
@@ -34,28 +34,22 @@ const G_NB: usize = 1080;
 ///   3. Remaining pad codewords → 2 `PAD_TABLE_STATE` entries each
 ///      where pad_count = row_count * column_count − 1 (SLD) − ec_count − text_codewords
 /// Finally, `ZERO_TABLE_STATE` entries are prepended until the total reaches 5400.
-fn add_dummy_table_states(
-    char_table_states: &mut Vec<TableState>,
-    row_count: u32,
-    column_count: u32,
-    ec_level: u32,
-) {
+fn add_dummy_table_states(char_table_states: &mut Vec<TableState>, stats: &BarcodeStats) {
     let text_codeword_count = char_table_states.len() as u32 / 2;
 
     // 1 SLD codeword (2 states)
     char_table_states.push(SLD_TABLE_STATE);
     char_table_states.push(SLD_TABLE_STATE);
 
-    // 2^(ec_level + 1) EC codewords (2 states each)
-    let ec_count = 1u32 << (ec_level + 1);
-    for _ in 0..ec_count {
+    for _ in 0..stats.num_ec_codewords {
         char_table_states.push(EC_TABLE_STATE);
         char_table_states.push(EC_TABLE_STATE);
     }
 
     // Pad codewords between data and EC sections (2 states each)
-    let total_codewords = row_count * column_count;
-    let pad_codewords = total_codewords.saturating_sub(1 + ec_count + text_codeword_count);
+    let total_codewords: u32 = (stats.num_rows as u32) * (stats.num_cols as u32);
+    let pad_codewords: u32 =
+        total_codewords.saturating_sub(1 + (stats.num_ec_codewords as u32) + text_codeword_count);
     for _ in 0..pad_codewords {
         char_table_states.push(PAD_TABLE_STATE);
         char_table_states.push(PAD_TABLE_STATE);
@@ -104,7 +98,10 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     // data that should be in the lookup table we use in the proof for the well-behaved image
     pub wb_lookups: Vec<Vec<BlockLookup>>,
     // the baseB decomp of each encoded chunk of blocks; indexed [row][chunk][element]
-    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_u32_array_vec_2d"))]
+    #[cfg_attr(
+        feature = "serde",
+        serde(serialize_with = "serialize_u32_array_vec_2d")
+    )]
     pub wb_baseB_decomps: Vec<Vec<[u32; WB_NB]>>,
 
     // The "garbage" rows of the image that will not decode
@@ -120,7 +117,10 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     // data that should be in the lookup table we use in the proof for the garbage image
     pub g_lookups: Vec<Vec<BlockLookup>>,
     // the baseB decomp of each encoded chunk of blocks; indexed [row][chunk][element]
-    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_u32_array_vec_2d"))]
+    #[cfg_attr(
+        feature = "serde",
+        serde(serialize_with = "serialize_u32_array_vec_2d")
+    )]
     pub g_baseB_decomps: Vec<Vec<[u32; G_NB]>>,
 
     pub wb_blocks: Vec<Vec<u32>>,
@@ -141,9 +141,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
     pub garbage_disjoint_set_poly_g: Vec<F>,
 
-    pub row_count: u32,
-    pub column_count: u32,
-    pub ec_level: u32,
+    pub stats: BarcodeStats,
 
     pub row_indicators: RowIndicatorVars,
 
@@ -188,9 +186,7 @@ impl FinalizedWitnessData<Fr> {
         wb_inds: Vec<u32>,
         garbage: BitMatrix,
         garbage_inds: Vec<i32>,
-        row_count: u32,
-        column_count: u32,
-        ec_level: u32,
+        stats: BarcodeStats,
         row_indicators: RowIndicatorVars,
         all_left_row_indicators: Vec<u32>,
         codewords: Vec<u32>,
@@ -224,9 +220,9 @@ impl FinalizedWitnessData<Fr> {
             .map(|target| wb_inds.iter().filter(|&&x| x == *target).count() as u32)
             .collect();
         let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
-        let (wb_lookups, wb_baseB_decomps) = compute_lookups_and_decomps::<WB_NB>(&well_behaved, WB_B);
-        let (g_lookups, g_baseB_decomps) =
-            compute_lookups_and_decomps::<G_NB>(&garbage, G_B);
+        let (wb_lookups, wb_baseB_decomps) =
+            compute_lookups_and_decomps::<WB_NB>(&well_behaved, WB_B);
+        let (g_lookups, g_baseB_decomps) = compute_lookups_and_decomps::<G_NB>(&garbage, G_B);
 
         let wb_blocks = compute_blocks(&well_behaved, WB_NB);
         let wb_normalized_blocks = compute_normalized_blocks(&wb_blocks);
@@ -236,7 +232,6 @@ impl FinalizedWitnessData<Fr> {
         let garbage_words = compute_words(&garbage_normalized_blocks);
         let (garbage_disjoint_set_poly_f, garbage_disjoint_set_poly_g) =
             show_disjoint_from_valid_words(garbage_words.into_iter().flatten().collect());
-
 
         let (words_with_dummies, wb_garbage) =
             compute_words_with_dummies(&wb_normalized_blocks, &wb_inds);
@@ -267,9 +262,7 @@ impl FinalizedWitnessData<Fr> {
             garbage_normalized_blocks,
             garbage_disjoint_set_poly_f,
             garbage_disjoint_set_poly_g,
-            row_count,
-            column_count,
-            ec_level,
+            stats,
             row_indicators,
             all_left_row_indicators,
             codewords,
@@ -287,20 +280,11 @@ impl FinalizedWitnessData<Fr> {
 
         let well_behaved = Option::ok_or(witness_data.wb_image.clone(), "no wb_image data")?;
         let wb_inds = Option::ok_or(witness_data.wb_inds.clone(), "no wb_inds data")?;
-        let garbage =
-            Option::ok_or(witness_data.garbage_image.clone(), "no garbage_image data")?;
+        let garbage = Option::ok_or(witness_data.garbage_image.clone(), "no garbage_image data")?;
         let garbage_inds =
             Option::ok_or(witness_data.garbage_inds.clone(), "no garbage_inds data")?;
 
-        let row_count = Option::ok_or(witness_data.row_count.clone(), "no row count data")?;
-
-        let column_count =
-            Option::ok_or(witness_data.column_count.clone(), "no column count data")?;
-
-        let ec_level = Option::ok_or(
-            witness_data.ec_level.clone(),
-            "no error correction level data",
-        )?;
+        let stats = Option::ok_or(witness_data.stats.clone(), "no barcode stats data")?;
 
         let row_indicators =
             Option::ok_or(witness_data.row_indicators.clone(), "no row indicator data")?;
@@ -327,7 +311,7 @@ impl FinalizedWitnessData<Fr> {
             "no char table states data",
         )?;
 
-        add_dummy_table_states(&mut char_table_states, row_count, column_count, ec_level);
+        add_dummy_table_states(&mut char_table_states, &stats);
 
         let chars = Option::ok_or(witness_data.chars.clone(), "no chars data")?;
 
@@ -340,9 +324,7 @@ impl FinalizedWitnessData<Fr> {
             wb_inds,
             garbage,
             garbage_inds,
-            row_count,
-            column_count,
-            ec_level,
+            stats,
             row_indicators,
             all_left_row_indicators,
             codewords,
@@ -394,7 +376,7 @@ mod tests {
         // row_count=1, column_count=1, ec_level=0
         // total_codewords=1, ec_count=2, pad=max(0, 1-1-2-0)=0
         // pushed: 0 + 2(SLD) + 4(EC) + 0(pad) = 6 → prepend 5394 zeros
-        add_dummy_table_states(&mut states, 1, 1, 0);
+        add_dummy_table_states(&mut states, &BarcodeStats { num_rows: 1, num_cols: 1, ec_level: 0, num_ec_codewords: 2 });
         assert_eq!(states.len(), 5400);
     }
 
@@ -412,7 +394,7 @@ mod tests {
                 next_next_table: 0,
             })
             .collect();
-        add_dummy_table_states(&mut states, 5, 4, 1);
+        add_dummy_table_states(&mut states, &BarcodeStats { num_rows: 5, num_cols: 4, ec_level: 1, num_ec_codewords: 4 });
         assert_eq!(states.len(), 5400);
     }
 
@@ -421,7 +403,7 @@ mod tests {
         // Empty input, 1x1 barcode, ec_level=0:
         // Layout: [5394 × ZERO] [SLD SLD] [EC EC EC EC]
         let mut states: Vec<TableState> = Vec::new();
-        add_dummy_table_states(&mut states, 1, 1, 0);
+        add_dummy_table_states(&mut states, &BarcodeStats { num_rows: 1, num_cols: 1, ec_level: 0, num_ec_codewords: 2 });
 
         // Leading entries are zeros (char=0)
         assert_eq!(states[0].char, 0);
@@ -451,7 +433,7 @@ mod tests {
                 next_next_table: 0,
             })
             .collect();
-        add_dummy_table_states(&mut states, 10, 5, 0);
+        add_dummy_table_states(&mut states, &BarcodeStats { num_rows: 10, num_cols: 5, ec_level: 0, num_ec_codewords: 2 });
         assert_eq!(states.len(), 5400);
 
         // The last 90 entries should be PAD (char=32)

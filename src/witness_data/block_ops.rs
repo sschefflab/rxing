@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(l.num_blocks, 1);
         assert_eq!(l.num_blocks_is_odd, 1);
         assert_eq!(l.remainder_is_black, 0); // last block is white
-        assert_eq!(decomps[0], [0, 5]); // padded with one leading zero
+        assert_eq!(decomps[0][0], [0u32, 5u32]); // padded with one leading zero
     }
 
     #[test]
@@ -350,7 +350,7 @@ mod tests {
         assert_eq!(l.num_blocks, 1);
         assert_eq!(l.num_blocks_is_odd, 1);
         assert_eq!(l.remainder_is_black, 1); // last block is black
-        assert_eq!(decomps[0], [0, 5]);
+        assert_eq!(decomps[0][0], [0u32, 5u32]);
     }
 
     #[test]
@@ -371,7 +371,7 @@ mod tests {
         assert_eq!(l.num_blocks_is_odd, 0);
         // first_is_black=true, (nb-1)%2=1 → last is opposite → white → remainder_is_black=0
         assert_eq!(l.remainder_is_black, 0);
-        assert_eq!(decomps[0], [3, 7]);
+        assert_eq!(decomps[0][0], [3u32, 7u32]);
     }
 
     #[test]
@@ -390,7 +390,7 @@ mod tests {
         // first_is_black=false, (nb-1)%2=3%2=1 → last is opposite → black → remainder_is_black=1
         assert_eq!(l.remainder_is_black, 1);
         // decomp fills all N=4 slots, no leading zeros
-        assert_eq!(decomps[0], [1, 2, 4, 3]);
+        assert_eq!(decomps[0][0], [1u32, 2u32, 4u32, 3u32]);
         // baseB_enc = 1*1080^3 + 2*1080^2 + 4*1080 + 3
         let expected = 1u128 * 1080u128.pow(3) + 2 * 1080u128.pow(2) + 4 * 1080 + 3;
         assert_eq!(l.baseB_enc, expected);
@@ -412,7 +412,7 @@ mod tests {
 
         assert_eq!(lookups.len(), 1); // 1 row
         assert_eq!(lookups[0].len(), 2); // 2 chunks
-        assert_eq!(decomps.len(), 2);
+        assert_eq!(decomps[0].len(), 2);
 
         // Chunk 0
         let l0 = &lookups[0][0];
@@ -422,21 +422,21 @@ mod tests {
         assert_eq!(l0.num_blocks, 2);
         assert_eq!(l0.num_blocks_is_odd, 0);
         assert_eq!(l0.remainder_is_black, 0); // first=black, (nb-1)%2=1 → last=white
-        assert_eq!(decomps[0], [2, 8]);
+        assert_eq!(decomps[0][0], [2u32, 8u32]);
 
         // Chunk 1
         let l1 = &lookups[0][1];
         // pixels 5-9 of the chunk (cols 15-19) are black → bits 5-9 set
         assert_eq!(
             l1.binary_enc,
-            (1u128 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9)
+            (1u16 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9)
         );
         assert_eq!(l1.baseB_enc, 5 * 27 + 5); // = 140
         assert_eq!(l1.remainder, 5);
         assert_eq!(l1.num_blocks, 2);
         assert_eq!(l1.num_blocks_is_odd, 0);
         assert_eq!(l1.remainder_is_black, 1); // first=white, (nb-1)%2=1 → last=black
-        assert_eq!(decomps[1], [5, 5]);
+        assert_eq!(decomps[0][1], [5u32, 5u32]);
     }
 
     #[test]
@@ -454,8 +454,8 @@ mod tests {
         assert_eq!(decomps.len(), 2);
         assert_eq!(lookups[0][0].remainder_is_black, 1); // row 0: last block black
         assert_eq!(lookups[1][0].remainder_is_black, 0); // row 1: last block white
-        assert_eq!(decomps[0], [0, 5]);
-        assert_eq!(decomps[1], [0, 5]);
+        assert_eq!(decomps[0][0], [0u32, 5u32]);
+        assert_eq!(decomps[1][0], [0u32, 5u32]);
     }
 
     #[test]
@@ -477,7 +477,7 @@ mod tests {
         // Use N=10 so even fully alternating rows (10 blocks) fit
         let (lookups, decomps) = compute_lookups_and_decomps::<10>(&image, B);
 
-        for (row_lookups, decomp) in lookups.iter().flat_map(|r| r.iter()).zip(decomps.iter()) {
+        for (row_lookups, decomp) in lookups.iter().flat_map(|r| r.iter()).zip(decomps.iter().flat_map(|r| r.iter())) {
             let blocks_base_b = row_lookups.baseB_enc;
             let reconstructed: u128 = decomp
                 .iter()
@@ -504,7 +504,7 @@ mod tests {
         let image = make_bitmatrix(rows);
         let (lookups, decomps) = compute_lookups_and_decomps::<10>(&image, 27);
 
-        for (lookup, decomp) in lookups.iter().flat_map(|r| r.iter()).zip(decomps.iter()) {
+        for (lookup, decomp) in lookups.iter().flat_map(|r| r.iter()).zip(decomps.iter().flat_map(|r| r.iter())) {
             let nb = lookup.num_blocks as usize;
             let leading_zeros = decomp.iter().take_while(|&&d| d == 0).count();
             assert_eq!(leading_zeros, 10 - nb);

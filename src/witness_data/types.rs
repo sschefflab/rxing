@@ -7,6 +7,16 @@ use serde::Serialize;
 
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[derive(Clone, Debug)]
+pub struct BarcodeStats {
+    pub num_rows: u8,
+    pub num_cols: u8,
+
+    pub ec_level: u8,
+    pub num_ec_codewords: u16,
+}
+
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[derive(Clone, Debug)]
 pub struct RowIndicatorVars {
     pub l0: u32,
     pub l3: u32,
