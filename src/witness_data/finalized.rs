@@ -143,8 +143,10 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
 
     pub stats: BarcodeStats,
 
+    #[cfg_attr(feature = "serde", serde(rename = "row_indc"))]
     pub row_indicators: RowIndicatorVars,
 
+    #[cfg_attr(feature = "serde", serde(rename = "left_row_inds"))]
     pub all_left_row_indicators: Vec<u32>,
 
     /// Codewords before error correction
