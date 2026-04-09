@@ -25,28 +25,30 @@ use super::serde_support::{serialize_bitmatrix, serialize_fr_vec, serialize_u32_
 const WB_NB: usize = 273;
 const G_NB: usize = 1080;
 
-/// Appends dummy SLD, EC, and pad table states to `char_table_states`, then prepends
-/// zero states so the total length reaches 5400.
+/// Builds the full 5400-entry `char_table_states` array matching the forward-iteration
+/// order used by the ZoKrates `codewords_to_chars` circuit (which walks `corrected_codewords`
+/// from index 0 upward).
 ///
-/// Layout (appended in order):
-///   1. 1 SLD codeword → 2 `SLD_TABLE_STATE` entries
-///   2. 2^(ec_level + 1) EC codewords → 2 `EC_TABLE_STATE` entries each
-///   3. Remaining pad codewords → 2 `PAD_TABLE_STATE` entries each
-///      where pad_count = row_count * column_count − 1 (SLD) − ec_count − text_codewords
-/// Finally, `ZERO_TABLE_STATE` entries are prepended until the total reaches 5400.
+/// The corrected_codewords layout is:
+///   [0…0 | SLD | data codewords | pad codewords | EC codewords]
+///
+/// So the table_states array is built in the same order:
+///   1. ZERO_TABLE_STATE entries for the zero-padded prefix
+///   2. 1 SLD codeword → 2 `SLD_TABLE_STATE` entries
+///   3. Text/data codewords → already in `char_table_states` (2 entries each)
+///   4. Remaining pad codewords → 2 `PAD_TABLE_STATE` entries each
+///      where pad_count = row_count × column_count − 1 (SLD) − ec_count − text_codewords
+///   5. 2^(ec_level + 1) EC codewords → 2 `EC_TABLE_STATE` entries each
+/// Total is padded to exactly 5400.
 fn add_dummy_table_states(char_table_states: &mut Vec<TableState>, stats: &BarcodeStats) {
     let text_codeword_count = char_table_states.len() as u32 / 2;
 
-    // 1 SLD codeword (2 states)
-    char_table_states.push(SLD_TABLE_STATE);
-    char_table_states.push(SLD_TABLE_STATE);
+    // SLD precedes text in the codeword array, so prepend its states before the text states.
+    let mut with_sld = vec![SLD_TABLE_STATE, SLD_TABLE_STATE];
+    with_sld.append(char_table_states);
+    *char_table_states = with_sld;
 
-    for _ in 0..stats.num_ec_codewords {
-        char_table_states.push(EC_TABLE_STATE);
-        char_table_states.push(EC_TABLE_STATE);
-    }
-
-    // Pad codewords between data and EC sections (2 states each)
+    // Pad codewords come after data and before EC in the raw array.
     let total_codewords: u32 = (stats.num_rows as u32) * (stats.num_cols as u32);
     let pad_codewords: u32 =
         total_codewords.saturating_sub(1 + (stats.num_ec_codewords as u32) + text_codeword_count);
@@ -55,7 +57,13 @@ fn add_dummy_table_states(char_table_states: &mut Vec<TableState>, stats: &Barco
         char_table_states.push(PAD_TABLE_STATE);
     }
 
-    // Prepend zero states to reach exactly 5400 total states
+    // EC codewords come last in the raw array.
+    for _ in 0..stats.num_ec_codewords {
+        char_table_states.push(EC_TABLE_STATE);
+        char_table_states.push(EC_TABLE_STATE);
+    }
+
+    // Prepend zero states to reach exactly 5400 total states.
     let current_count = char_table_states.len();
     if current_count < 5400 {
         let zero_count = 5400 - current_count;
@@ -328,7 +336,8 @@ impl FinalizedWitnessData<Fr> {
 
         add_dummy_table_states(&mut char_table_states, &stats);
 
-        let chars = Option::ok_or(witness_data.chars.clone(), "no chars data")?;
+        let mut chars = Option::ok_or(witness_data.chars.clone(), "no chars data")?;
+        chars.resize(5400, 0);
 
         Ok(Self::new(
             witness_data.width,
@@ -390,7 +399,7 @@ mod tests {
         let mut states: Vec<TableState> = Vec::new();
         // row_count=1, column_count=1, ec_level=0
         // total_codewords=1, ec_count=2, pad=max(0, 1-1-2-0)=0
-        // pushed: 0 + 2(SLD) + 4(EC) + 0(pad) = 6 → prepend 5394 zeros
+        // entries: 2(SLD) + 0(pad) + 4(EC) = 6 → prepend 5394 zeros
         add_dummy_table_states(&mut states, &BarcodeStats { num_rows: 1, num_cols: 1, ec_level: 0, num_ec_codewords: 2 });
         assert_eq!(states.len(), 5400);
     }
@@ -399,7 +408,7 @@ mod tests {
     fn test_add_dummy_table_states_with_text_codewords() {
         // 2 text codewords → 4 states; row_count=5, col_count=4, ec_level=1
         // total=20, ec_count=4, pad=20-1-4-2=13
-        // pushed: 4 + 2 + 8 + 26 = 40 → prepend 5360 zeros
+        // entries: 2(SLD) + 4(text) + 26(pad) + 8(EC) = 40 → prepend 5360 zeros
         let mut states: Vec<TableState> = (0..4)
             .map(|_| TableState {
                 base30_val: 1,
@@ -426,7 +435,7 @@ mod tests {
         // SLD entries (char=95)
         assert_eq!(states[5394].char, 95);
         assert_eq!(states[5395].char, 95);
-        // EC entries (char=6)
+        // EC entries at the tail (char=6); no pads in a 1×1 barcode
         assert_eq!(states[5396].char, 6);
         assert_eq!(states[5397].char, 6);
         assert_eq!(states[5398].char, 6);
@@ -438,7 +447,7 @@ mod tests {
         // Use a barcode large enough to have pad codewords.
         // 4 text states (2 codewords), row_count=10, col_count=5, ec_level=0
         // total=50, ec_count=2, pad=50-1-2-2=45
-        // Layout: [zeros] [text×4] [SLD×2] [EC×4] [PAD×90]
+        // Layout: [zeros] [SLD×2] [text×4] [PAD×90] [EC×4]
         let mut states: Vec<TableState> = (0..4)
             .map(|_| TableState {
                 base30_val: 0,
@@ -451,9 +460,13 @@ mod tests {
         add_dummy_table_states(&mut states, &BarcodeStats { num_rows: 10, num_cols: 5, ec_level: 0, num_ec_codewords: 2 });
         assert_eq!(states.len(), 5400);
 
-        // The last 90 entries should be PAD (char=32)
-        for entry in states.iter().rev().take(90) {
-            assert_eq!(entry.char, 32, "expected PAD_TABLE_STATE at tail");
+        // The last 4 entries should be EC (char=6)
+        for entry in states.iter().rev().take(4) {
+            assert_eq!(entry.char, 6, "expected EC_TABLE_STATE at tail");
+        }
+        // The 90 entries before EC should be PAD (char=32)
+        for entry in states.iter().rev().skip(4).take(90) {
+            assert_eq!(entry.char, 32, "expected PAD_TABLE_STATE before EC");
         }
     }
 }
