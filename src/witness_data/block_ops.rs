@@ -68,13 +68,14 @@ fn compute_lookups_and_raw_decomps<const N: usize>(
             for (i, &b) in blocks_vec[..num_non_remainder].iter().enumerate() {
                 let power: u32 = (num_non_remainder - 1 - i) as u32;
                 blocks_base_b += b as u128 * (B as u128).pow(power);
-                decomp[N - num_non_remainder + i] = b;
+                let decomp_idx = N.saturating_sub(num_non_remainder) + i;
+                decomp[decomp_idx] = b;
             }
 
             row_decomps.push(decomp); // this decomp ignores the remainder blocks
 
-            let nb = nb_usize as u8;
-            let odd: u8 = (num_non_remainder as u8) % 2;
+            let nb = num_non_remainder as u8;
+            let odd: u8 = nb % 2;
             let first_is_black = pixels[0];
 
             // remainder = rightmost block length (remainder that may merge with the next chunk)
@@ -397,7 +398,7 @@ mod tests {
     fn test_compute_lookups_all_white() {
         // Single row, 5 white pixels → one block of length 5
         let image = make_bitmatrix(&[&[false, false, false, false, false]]);
-        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 27);
+        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104);
 
         assert_eq!(lookups.len(), 1);
         assert_eq!(decomps.len(), 1);
@@ -408,6 +409,7 @@ mod tests {
         assert_eq!(l.num_blocks, 0); // num_blocks does not include the remainder
         assert_eq!(l.num_blocks_is_odd, 0); // 0 % 2 == 1
         assert_eq!(l.remainder_is_black, 0); // rightmost block is white
+        assert_eq!(l.power_of_B, 1); // nb=0, odd=0, rem_black=0, black_r=0 → xor=0, offset=1, exp=0 → 104^0=1
         assert_eq!(decomps[0][0], [0u16, 5u16]); // enc_baseB=5 → only one block of len 5
     }
 
@@ -415,7 +417,7 @@ mod tests {
     fn test_compute_lookups_all_black() {
         // Single row, 5 black pixels → one block of length 5
         let image = make_bitmatrix(&[&[true, true, true, true, true]]);
-        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 27);
+        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104);
 
         assert_eq!(lookups.len(), 1);
         let l = &lookups[0][0];
@@ -425,6 +427,7 @@ mod tests {
         assert_eq!(l.num_blocks, 0);
         assert_eq!(l.num_blocks_is_odd, 0); // 0 % 2 == 0
         assert_eq!(l.remainder_is_black, 1); // rightmost block is black
+        assert_eq!(l.power_of_B, 1); // nb=0, odd=0, rem_black=1, black_r=0 → xor=1, offset=0, exp=0 → 104^0=1
         assert_eq!(decomps[0][0], [0u16, 5u16]); // enc_baseB=5 → only one block of len 5
     }
 
@@ -435,7 +438,7 @@ mod tests {
             true, true, true, false, false, false, false, false, false, false,
         ];
         let image = make_bitmatrix(&[row]);
-        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 27);
+        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104);
 
         assert_eq!(lookups.len(), 1);
         let l = &lookups[0][0];
@@ -447,6 +450,7 @@ mod tests {
         assert_eq!(l.num_blocks_is_odd, 1); // 1 % 2 == 1
         // first_is_black=true, (2-1)%2=1 → last is opposite → white → remainder_is_black=0
         assert_eq!(l.remainder_is_black, 0);
+        assert_eq!(l.power_of_B, 104); // nb=1, odd=1, rem_black=0, black_r=0 → xor=1, offset=0, exp=1 → 104^1=104
         assert_eq!(decomps[0][0], [3u16, 7u16]);
     }
 
@@ -465,6 +469,7 @@ mod tests {
         assert_eq!(l.remainder, 3);
         // first_is_black=false, (nb-1)%2=3%2=1 → last is opposite → black → remainder_is_black=1
         assert_eq!(l.remainder_is_black, 1);
+        assert_eq!(l.power_of_B, 1166400); // nb=3, odd=1, rem_black=1, black_r=0 → xor=0, offset=1, exp=2 → 1080^2=1166400
         // decomp is little-endian of non-remainder blocks [1,2,4]:
         //   decomp[0]=4 (coeff of B^0), decomp[1]=2 (B^1), decomp[2]=1 (B^2), decomp[3]=0 (pad)
         assert_eq!(decomps[0][0], [1u16, 2u16, 4u16, 3u16]);
@@ -485,7 +490,7 @@ mod tests {
             row[i] = true;
         }
         let image = make_bitmatrix(&[row.as_slice()]);
-        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 27);
+        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104);
 
         assert_eq!(lookups.len(), 1); // 1 row
         assert_eq!(lookups[0].len(), 2); // 2 chunks
@@ -499,6 +504,7 @@ mod tests {
         assert_eq!(l0.num_blocks, 1);
         assert_eq!(l0.num_blocks_is_odd, 1);
         assert_eq!(l0.remainder_is_black, 0); // first=black, (nb-1)%2=1 → last=white
+        assert_eq!(l0.power_of_B, 104); // nb=1, odd=1, rem_black=0, black_r=0 → xor=1, offset=0, exp=1 → 104^1=104
         assert_eq!(decomps[0][0], [0u16, 2u16]);
 
         // Chunk 1
@@ -510,6 +516,7 @@ mod tests {
         assert_eq!(l1.num_blocks, 1);
         assert_eq!(l1.num_blocks_is_odd, 1);
         assert_eq!(l1.remainder_is_black, 1); // first=white, (nb-1)%2=1 → last=black
+        assert_eq!(l1.power_of_B, 1); // nb=1, odd=1, rem_black=1, black_r=0 → xor=0, offset=1, exp=0 → 27^0=1
         assert_eq!(decomps[0][1], [13u16, 5u16]);
     }
 
@@ -520,7 +527,7 @@ mod tests {
             &[true, true, true, true, true],
             &[false, false, false, false, false],
         ]);
-        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 27);
+        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104);
 
         assert_eq!(lookups.len(), 2); // 2 rows
         assert_eq!(lookups[0].len(), 1); // 1 chunk per row
@@ -528,6 +535,8 @@ mod tests {
         assert_eq!(decomps.len(), 2);
         assert_eq!(lookups[0][0].remainder_is_black, 1); // row 0: last block black
         assert_eq!(lookups[1][0].remainder_is_black, 0); // row 1: last block white
+        assert_eq!(lookups[0][0].power_of_B, 1); // nb=0, odd=0, rem_black=1, black_r=0 → xor=1, offset=0, exp=0 → 104^0=1
+        assert_eq!(lookups[1][0].power_of_B, 1); // nb=0, odd=0, rem_black=0, black_r=0 → xor=0, offset=1, exp=0 → 104^0=1
         assert_eq!(decomps[0][0], [0u16, 5u16]);
         assert_eq!(decomps[1][0], [0u16, 5u16]);
     }

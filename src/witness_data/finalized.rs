@@ -22,11 +22,11 @@ use crate::disjoint_set_polynomials::show_disjoint_from_valid_words;
 #[cfg(feature = "serde")]
 use super::serde_support::{serialize_bitmatrix, serialize_fr_vec, serialize_u16_array_vec_2d};
 
-const WB_NB: usize = 273;
+const WB_NB: usize = 281;
 const G_NB: usize = 1080;
 
-const WB_NUM_DECOMPS: usize = 2;
-const G_NUM_DECOMPS: usize = 4;
+const WB_NUM_DECOMPS: usize = 4;
+const G_NUM_DECOMPS: usize = 10;
 
 /// Builds the full 5400-entry `char_table_states` array matching the forward-iteration
 /// order used by the ZoKrates `codewords_to_chars` circuit (which walks `corrected_codewords`
@@ -227,7 +227,7 @@ impl FinalizedWitnessData<Fr> {
                 row.len()
             );
         }
-        const WB_B: usize = 27;
+        const WB_B: usize = 104;
         const G_B: usize = 1080;
 
         let wb_ind_counts: Vec<u32> = wb_inds
