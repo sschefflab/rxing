@@ -66,8 +66,8 @@ pub struct BlockLookup {
     pub binary_enc: u16,
     /// Run-length blocks encoded in base B (big-endian); needs u128 for large B (e.g. G uses B=1080, 1080^10 > u64::MAX)
     pub baseB_enc: u128,
-    /// Length of the last block; max chunk size is 10
-    pub remainder: u8,
+    /// Length of the last block; max size is 1080
+    pub remainder: u16,
     /// Number of blocks in the chunk; max chunk size is 10
     pub num_blocks: u8,
     /// 1 if num_blocks is odd, 0 if even

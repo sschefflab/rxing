@@ -17,8 +17,8 @@ where
 
 /// Serializes `Vec<Vec<[u32; N]>>` as a 3D JSON array `[[[u32, ...], ...], ...]`.
 /// Needed because serde only has built-in Serialize for arrays up to size 32.
-pub fn serialize_u32_array_vec_2d<const N: usize, S>(
-    rows: &Vec<Vec<[u32; N]>>,
+pub fn serialize_u16_array_vec_2d<const N: usize, S>(
+    rows: &Vec<Vec<[u16; N]>>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
@@ -29,7 +29,7 @@ where
     let mut outer = serializer.serialize_seq(Some(rows.len()))?;
     for row in rows {
         // Serialize each row as a sequence of slices
-        struct RowSerializer<'a, const N: usize>(&'a Vec<[u32; N]>);
+        struct RowSerializer<'a, const N: usize>(&'a Vec<[u16; N]>);
         impl<'a, const N: usize> serde::Serialize for RowSerializer<'a, N> {
             fn serialize<S2: serde::Serializer>(&self, s: S2) -> Result<S2::Ok, S2::Error> {
                 use serde::ser::SerializeSeq;

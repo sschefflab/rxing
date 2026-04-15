@@ -239,20 +239,20 @@ pub fn decode(
             .map(|i| (min_y + i as u32) as i32)
             .collect();
 
-        // wb_image: same dimensions as original; bounding-box rows sourced from wb_inds,
-        // rows outside the bounding box copied directly
-        let mut wb_bm = BitMatrix::new(image_width, image_height).unwrap();
-        for y in 0..image_height {
-            let src_row = if y >= min_y && y <= max_y {
-                wb_inds[(y - min_y) as usize]
-            } else {
-                y
-            };
-            wb_bm.setRow(y, &image.getRow(src_row));
+        // wb_image: only bounding-box rows, sourced from wb_inds
+        let mut wb_bm = BitMatrix::new(image_width, num_rows as u32).unwrap();
+        for (dest_row, &src_row) in wb_inds.iter().enumerate() {
+            wb_bm.setRow(dest_row as u32, &image.getRow(src_row));
         }
 
-        // garbage_image: exactly 89 rows. Actual garbage rows first, remainder padded
-        // with zero rows. garbage_inds uses -1 for padded rows.
+        // garbage_image: exactly 89 rows. Rows outside the bounding box plus non-good
+        // bounding-box rows, remainder padded with zero rows. garbage_inds uses -1 for padded rows.
+        let mut outside_inds: Vec<i32> = (0..image_height)
+            .filter(|&y| y < min_y || y > max_y)
+            .map(|y| y as i32)
+            .collect();
+        garbage_inds.append(&mut outside_inds);
+
         const GARBAGE_ROWS: usize = 89;
         assert!(
             garbage_inds.len() <= GARBAGE_ROWS,

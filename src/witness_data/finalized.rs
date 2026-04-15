@@ -20,10 +20,13 @@ use crate::common::BitMatrix;
 use crate::disjoint_set_polynomials::show_disjoint_from_valid_words;
 
 #[cfg(feature = "serde")]
-use super::serde_support::{serialize_bitmatrix, serialize_fr_vec, serialize_u32_array_vec_2d};
+use super::serde_support::{serialize_bitmatrix, serialize_fr_vec, serialize_u16_array_vec_2d};
 
-const WB_NB: usize = 273;
+const WB_NB: usize = 281;
 const G_NB: usize = 1080;
+
+const WB_NUM_DECOMPS: usize = 4;
+const G_NUM_DECOMPS: usize = 10;
 
 /// Builds the full 5400-entry `char_table_states` array matching the forward-iteration
 /// order used by the ZoKrates `codewords_to_chars` circuit (which walks `corrected_codewords`
@@ -108,14 +111,14 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     // the baseB decomp of each encoded chunk of blocks; indexed [row][chunk][element]
     #[cfg_attr(
         feature = "serde",
-        serde(serialize_with = "serialize_u32_array_vec_2d")
+        serde(serialize_with = "serialize_u16_array_vec_2d")
     )]
-    pub wb_baseB_decomps: Vec<Vec<[u32; WB_NB]>>,
+    pub wb_baseB_decomps: Vec<Vec<[u16; WB_NUM_DECOMPS]>>,
 
     // The "garbage" rows of the image that will not decode
     // Will always have exactly 89 rows. Padded with zero rows.
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_bitmatrix"))]
-    pub garbage: BitMatrix,
+    pub garbage_image: BitMatrix,
     // The row number from the original image that row i in garbage came from
     // If it's a zero row, index is -1
     pub garbage_inds: Vec<i32>,
@@ -127,9 +130,9 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     // the baseB decomp of each encoded chunk of blocks; indexed [row][chunk][element]
     #[cfg_attr(
         feature = "serde",
-        serde(serialize_with = "serialize_u32_array_vec_2d")
+        serde(serialize_with = "serialize_u16_array_vec_2d")
     )]
-    pub g_baseB_decomps: Vec<Vec<[u32; G_NB]>>,
+    pub g_baseB_decomps: Vec<Vec<[u16; G_NUM_DECOMPS]>>,
 
     pub wb_blocks: Vec<Vec<u32>>,
     pub wb_normalized_blocks: Vec<Vec<[u32; 8]>>,
@@ -141,6 +144,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub wb_disjoint_set_poly_g: Vec<F>,
 
     pub g_blocks: Vec<Vec<u32>>,
+    #[cfg_attr(feature = "serde", serde(rename = "g_normalized_blocks"))]
     pub garbage_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
     // coefficients of polynomials showing that gcd(garbage, valid_words) = 1
@@ -195,7 +199,7 @@ impl FinalizedWitnessData<Fr> {
         bin_image: BitMatrix,
         well_behaved: BitMatrix,
         wb_inds: Vec<u32>,
-        garbage: BitMatrix,
+        garbage_image: BitMatrix,
         garbage_inds: Vec<i32>,
         stats: BarcodeStats,
         row_indicators: RowIndicatorVars,
@@ -223,7 +227,7 @@ impl FinalizedWitnessData<Fr> {
                 row.len()
             );
         }
-        const WB_B: usize = 27;
+        const WB_B: usize = 104;
         const G_B: usize = 1080;
 
         let wb_ind_counts: Vec<u32> = wb_inds
@@ -232,12 +236,13 @@ impl FinalizedWitnessData<Fr> {
             .collect();
         let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
         let (wb_lookups, wb_baseB_decomps) =
-            compute_lookups_and_decomps::<WB_NB>(&well_behaved, WB_B);
-        let (g_lookups, g_baseB_decomps) = compute_lookups_and_decomps::<G_NB>(&garbage, G_B);
+            compute_lookups_and_decomps::<WB_NUM_DECOMPS>(&well_behaved, WB_B);
+        let (g_lookups, g_baseB_decomps) =
+            compute_lookups_and_decomps::<G_NUM_DECOMPS>(&garbage_image, G_B);
 
         let wb_blocks = compute_blocks(&well_behaved, WB_NB);
         let wb_normalized_blocks = compute_normalized_blocks(&wb_blocks);
-        let g_blocks = compute_blocks(&garbage, G_NB);
+        let g_blocks = compute_blocks(&garbage_image, G_NB);
         let garbage_normalized_blocks = compute_normalized_blocks(&g_blocks);
 
         let garbage_words = compute_words(&garbage_normalized_blocks);
@@ -260,7 +265,7 @@ impl FinalizedWitnessData<Fr> {
             wb_ind_counts,
             wb_lookups,
             wb_baseB_decomps,
-            garbage,
+            garbage_image,
             garbage_inds,
             num_zero_rows,
             g_lookups,
@@ -291,7 +296,8 @@ impl FinalizedWitnessData<Fr> {
 
         let well_behaved = Option::ok_or(witness_data.wb_image.clone(), "no wb_image data")?;
         let wb_inds = Option::ok_or(witness_data.wb_inds.clone(), "no wb_inds data")?;
-        let garbage = Option::ok_or(witness_data.garbage_image.clone(), "no garbage_image data")?;
+        let garbage_image =
+            Option::ok_or(witness_data.garbage_image.clone(), "no garbage_image data")?;
         let garbage_inds =
             Option::ok_or(witness_data.garbage_inds.clone(), "no garbage_inds data")?;
 
@@ -305,24 +311,15 @@ impl FinalizedWitnessData<Fr> {
             "no all left row indicators data",
         )?;
 
-        // W = 2700 matches the ZoKrates circuit constant. The circuit evaluates
-        // sum(codewords[j] * (3^i)^(W-1-j)), so j=0 is the highest power. To match rxing's
-        // descending evaluation exactly (without a scale factor), zeros go at the front (high
-        // powers) and actual codewords at the end (low powers).
         const ZOK_W: usize = 2700;
-        let raw_codewords =
-            Option::ok_or(witness_data.codewords.clone(), "no codewords data")?;
-        let n = raw_codewords.len().min(ZOK_W);
-        let mut codewords = vec![0u32; ZOK_W];
-        codewords[ZOK_W - n..].copy_from_slice(&raw_codewords[..n]);
+        let mut codewords = Option::ok_or(witness_data.codewords.clone(), "no codewords data")?;
+        codewords.resize(ZOK_W, 0);
 
-        let raw_corrected = Option::ok_or(
+        let mut corrected_codewords = Option::ok_or(
             witness_data.corrected_codewords.clone(),
             "no corrected codewords data",
         )?;
-        let nc = raw_corrected.len().min(ZOK_W);
-        let mut corrected_codewords = vec![0u32; ZOK_W];
-        corrected_codewords[ZOK_W - nc..].copy_from_slice(&raw_corrected[..nc]);
+        corrected_codewords.resize(ZOK_W, 0);
 
         let polynomial_results = Option::ok_or(
             witness_data.polynomial_results.clone(),
@@ -346,7 +343,7 @@ impl FinalizedWitnessData<Fr> {
             bin_image,
             well_behaved,
             wb_inds,
-            garbage,
+            garbage_image,
             garbage_inds,
             stats,
             row_indicators,
@@ -400,7 +397,15 @@ mod tests {
         // row_count=1, column_count=1, ec_level=0
         // total_codewords=1, ec_count=2, pad=max(0, 1-1-2-0)=0
         // entries: 2(SLD) + 0(pad) + 4(EC) = 6 → prepend 5394 zeros
-        add_dummy_table_states(&mut states, &BarcodeStats { num_rows: 1, num_cols: 1, ec_level: 0, num_ec_codewords: 2 });
+        add_dummy_table_states(
+            &mut states,
+            &BarcodeStats {
+                num_rows: 1,
+                num_cols: 1,
+                ec_level: 0,
+                num_ec_codewords: 2,
+            },
+        );
         assert_eq!(states.len(), 5400);
     }
 
@@ -418,7 +423,15 @@ mod tests {
                 next_next_table: 0,
             })
             .collect();
-        add_dummy_table_states(&mut states, &BarcodeStats { num_rows: 5, num_cols: 4, ec_level: 1, num_ec_codewords: 4 });
+        add_dummy_table_states(
+            &mut states,
+            &BarcodeStats {
+                num_rows: 5,
+                num_cols: 4,
+                ec_level: 1,
+                num_ec_codewords: 4,
+            },
+        );
         assert_eq!(states.len(), 5400);
     }
 
@@ -427,7 +440,15 @@ mod tests {
         // Empty input, 1x1 barcode, ec_level=0:
         // Layout: [5394 × ZERO] [SLD SLD] [EC EC EC EC]
         let mut states: Vec<TableState> = Vec::new();
-        add_dummy_table_states(&mut states, &BarcodeStats { num_rows: 1, num_cols: 1, ec_level: 0, num_ec_codewords: 2 });
+        add_dummy_table_states(
+            &mut states,
+            &BarcodeStats {
+                num_rows: 1,
+                num_cols: 1,
+                ec_level: 0,
+                num_ec_codewords: 2,
+            },
+        );
 
         // Leading entries are zeros (char=0)
         assert_eq!(states[0].char, 0);
@@ -457,7 +478,15 @@ mod tests {
                 next_next_table: 0,
             })
             .collect();
-        add_dummy_table_states(&mut states, &BarcodeStats { num_rows: 10, num_cols: 5, ec_level: 0, num_ec_codewords: 2 });
+        add_dummy_table_states(
+            &mut states,
+            &BarcodeStats {
+                num_rows: 10,
+                num_cols: 5,
+                ec_level: 0,
+                num_ec_codewords: 2,
+            },
+        );
         assert_eq!(states.len(), 5400);
 
         // The last 4 entries should be EC (char=6)
