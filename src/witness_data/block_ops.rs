@@ -139,8 +139,9 @@ fn accumulate_decomps<const N: usize>(
                 if lookup.num_blocks == 0 {
                     let remainder_is_black = lookup.remainder_is_black != 0;
                     if last_remainder_is_black == remainder_is_black {
-                        // same color: merge with previous remainder
+                        // same color: chunk merges into running remainder, block_chunks[i]=0 → zero decomp
                         last_remainder += lookup.remainder;
+                        decomp = [0; N];
                     } else {
                         // different colors: commit previous remainder as last block
                         decomp.copy_within(1.., 0);
@@ -539,6 +540,25 @@ mod tests {
         assert_eq!(lookups[1][0].power_of_B, 1); // nb=0, odd=0, rem_black=0, black_r=0 → xor=0, offset=1, exp=0 → 104^0=1
         assert_eq!(decomps[0][0], [0u16, 5u16]);
         assert_eq!(decomps[1][0], [0u16, 5u16]);
+    }
+
+    #[test]
+    fn test_compute_lookups_zero_blocks() {
+        // TODO: add test that has a zero block_chunk checks for a zero decomp block
+        let row: &[bool] = &[
+            false, false, false, false, false, true, true, true, true, true, true, true, true,
+            true, true, true, true, true, true, true, true, true, true, false, false, false, false,
+            false, false, false,
+        ];
+        let image = make_bitmatrix(&[row]);
+        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104);
+        assert_eq!(lookups.len(), 1); // 1 row
+        assert_eq!(lookups[0].len(), 3); // 3 chunks in row
+        assert_eq!(decomps.len(), 1);
+        assert_eq!(decomps[0].len(), 3); // 3 block chunks
+        assert_eq!(decomps[0][0], [0u16, 5u16]);
+        assert_eq!(decomps[0][1], [0u16, 0u16]); // 0 decomp for 0 block chunk
+        assert_eq!(decomps[0][2], [18u16, 7u16]); // combined chunk and last remainder
     }
 
     // -------------------------------------------------------------------------
