@@ -151,7 +151,7 @@ fn accumulate_decomps<const N: usize>(
                     }
                 } else {
                     let first_block_is_black =
-                        (lookup.num_blocks_is_odd != 0) && (lookup.remainder_is_black == 0);
+                        (lookup.num_blocks_is_odd != 0) ^ (lookup.remainder_is_black != 0);
                     let idx = if first_block_is_black == last_remainder_is_black {
                         N - lookup.num_blocks as usize // first block and remainder are same color: merge
                     } else {
@@ -558,6 +558,50 @@ mod tests {
         assert_eq!(decomps[0][0], [0u16, 5u16]);
         assert_eq!(decomps[0][1], [0u16, 0u16]); // 0 decomp for 0 block chunk
         assert_eq!(decomps[0][2], [18u16, 7u16]); // combined chunk and last remainder
+    }
+
+    #[test]
+    fn test_compute_lookups_even_nb_black_remainder() {
+        // Tests the case: odd=0, remainder_is_black=1 (previously buggy path in first_block_is_black).
+        //
+        // Row (20px, 2 chunks):
+        //   Chunk 0: [T,T,T,T,T,F,F,F,F,F] → blocks [5,5], nb=1, odd=1, rem=5 (white)
+        //   Chunk 1: [T,T,T,F,F,T,T,T,T,T] → blocks [3,2,5], nb=2, odd=0, rem=5 (black)
+        //
+        // Chunk 1's first block is black (= rem_is_black XOR odd = 1 XOR 0 = black).
+        // Prev remainder (chunk 0) is white → different colors → no merge.
+        // Decomp[1] should be [prev_rem=5, block0=3, block1=2, final_rem=5] = [5,3,2,5].
+        //
+        // With the old buggy formula (odd && !rb = false), the code thought first was white
+        // and merged at the wrong index, producing [0, 8, 2, 5] instead.
+        let row: &[bool] = &[
+            true, true, true, true, true, false, false, false, false, false, // chunk 0
+            true, true, true, false, false, true, true, true, true, true,    // chunk 1
+        ];
+        let image = make_bitmatrix(&[row]);
+        let (lookups, decomps) = compute_lookups_and_decomps::<4>(&image, 104);
+
+        assert_eq!(lookups[0].len(), 2);
+
+        // Chunk 0: nb=1, odd=1, remainder_is_black=0
+        let l0 = &lookups[0][0];
+        assert_eq!(l0.num_blocks, 1);
+        assert_eq!(l0.num_blocks_is_odd, 1);
+        assert_eq!(l0.remainder, 5);
+        assert_eq!(l0.remainder_is_black, 0);
+
+        // Chunk 1: nb=2, odd=0, remainder_is_black=1 — the key case
+        let l1 = &lookups[0][1];
+        assert_eq!(l1.num_blocks, 2);
+        assert_eq!(l1.num_blocks_is_odd, 0);
+        assert_eq!(l1.remainder, 5);
+        assert_eq!(l1.remainder_is_black, 1);
+
+        // Chunk 0 decomp: only its one non-remainder block (5); its remainder feeds into chunk 1
+        assert_eq!(decomps[0][0], [0u16, 0, 0, 5]);
+        // Chunk 1 decomp: [prev_rem=5, block0=3, block1=2, final_rem=5]
+        // baseB_sum = 5*104^3 + 3*104^2 + 2*104 + 5 = 5656981 = block_chunks[1] in circuit
+        assert_eq!(decomps[0][1], [5u16, 3, 2, 5]);
     }
 
     // -------------------------------------------------------------------------
