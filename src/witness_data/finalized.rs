@@ -3,7 +3,7 @@
  */
 
 use ark_ed25519::Fr;
-use ark_ff::{FftField, PrimeField};
+use ark_ff::{FftField, PrimeField, Zero};
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
@@ -137,6 +137,8 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub wb_blocks: Vec<Vec<u32>>,
     pub wb_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
+    pub wb_words: Vec<Vec<u64>>, // TODO: remove when done testing
+
     // coefficients of polynomials showing that the stuff we throw out from the well-behaved image is disjoint from valid words
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
     pub wb_disjoint_set_poly_f: Vec<F>,
@@ -146,6 +148,8 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub g_blocks: Vec<Vec<u32>>,
     #[cfg_attr(feature = "serde", serde(rename = "g_normalized_blocks"))]
     pub garbage_normalized_blocks: Vec<Vec<[u32; 8]>>,
+
+    pub garbage_words: Vec<Vec<u64>>, // TODO: remove when done testing
 
     // coefficients of polynomials showing that gcd(garbage, valid_words) = 1
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
@@ -245,15 +249,25 @@ impl FinalizedWitnessData<Fr> {
         let g_blocks = compute_blocks(&garbage_image, G_NB);
         let garbage_normalized_blocks = compute_normalized_blocks(&g_blocks);
 
+        let wb_words = compute_words(&wb_normalized_blocks);
+
         let garbage_words = compute_words(&garbage_normalized_blocks);
-        let (garbage_disjoint_set_poly_f, garbage_disjoint_set_poly_g) =
-            show_disjoint_from_valid_words(garbage_words.into_iter().flatten().collect());
+        let g_n = garbage_normalized_blocks.len()
+            * garbage_normalized_blocks.first().map_or(0, |r| r.len());
+        let (mut garbage_disjoint_set_poly_f, mut garbage_disjoint_set_poly_g) =
+            show_disjoint_from_valid_words(garbage_words.clone().into_iter().flatten().collect());
+        garbage_disjoint_set_poly_f.resize(2789, Fr::zero());
+        garbage_disjoint_set_poly_g.resize(g_n, Fr::zero());
 
         let (words_with_dummies, wb_garbage) =
             compute_words_with_dummies(&wb_normalized_blocks, &wb_inds);
+        let wb_n = wb_normalized_blocks.len()
+            * wb_normalized_blocks.first().map_or(0, |r| r.len());
         let ext_codewords = compute_ext_codewords(&wb_normalized_blocks, &words_with_dummies);
-        let (wb_disjoint_set_poly_f, wb_disjoint_set_poly_g) =
+        let (mut wb_disjoint_set_poly_f, mut wb_disjoint_set_poly_g) =
             show_disjoint_from_valid_words(wb_garbage);
+        wb_disjoint_set_poly_f.resize(2789, Fr::zero());
+        wb_disjoint_set_poly_g.resize(wb_n, Fr::zero());
 
         Self {
             width,
@@ -272,10 +286,12 @@ impl FinalizedWitnessData<Fr> {
             g_baseB_decomps,
             wb_blocks,
             wb_normalized_blocks,
+            wb_words,
             wb_disjoint_set_poly_f,
             wb_disjoint_set_poly_g,
             g_blocks,
             garbage_normalized_blocks,
+            garbage_words,
             garbage_disjoint_set_poly_f,
             garbage_disjoint_set_poly_g,
             stats,
@@ -306,10 +322,11 @@ impl FinalizedWitnessData<Fr> {
         let row_indicators =
             Option::ok_or(witness_data.row_indicators.clone(), "no row indicator data")?;
 
-        let all_left_row_indicators = Option::ok_or(
+        let mut all_left_row_indicators = Option::ok_or(
             witness_data.all_left_row_indicators.clone(),
             "no all left row indicators data",
         )?;
+        all_left_row_indicators.resize(90, 0);
 
         const ZOK_W: usize = 2700;
         let mut codewords = Option::ok_or(witness_data.codewords.clone(), "no codewords data")?;
