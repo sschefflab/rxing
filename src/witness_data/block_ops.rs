@@ -290,7 +290,6 @@ pub fn compute_words(normalized_blocks: &[Vec<[u32; 8]>]) -> Vec<Vec<u64>> {
 /// Returns (words_with_dummies, garbage_words)
 pub fn compute_words_with_dummies(
     normalized_blocks: &[Vec<[u32; 8]>],
-    wb_inds: &[u32],
 ) -> (Vec<Vec<u64>>, Vec<u64>) {
     let mut garbage = Vec::new();
     // Precompute all words so we can look up the previous row's words by index.
@@ -300,10 +299,9 @@ pub fn compute_words_with_dummies(
         .collect();
     let words_with_dummies: Vec<Vec<u64>> = normalized_blocks
         .iter()
-        .zip(wb_inds.iter())
         .enumerate()
-        .map(|(i, (row, &orig_idx))| {
-            let is_consecutive_duplicate = i > 0 && orig_idx == wb_inds[i - 1];
+        .map(|(i, row)| {
+            let is_consecutive_duplicate = i > 0 && all_words[i] == all_words[i - 1];
             if is_consecutive_duplicate {
                 // Consecutive duplicate — same source as row above, so circuit's
                 // curr_word == words[i-1][j] for all j, and garbage stays 1.
@@ -347,7 +345,7 @@ fn proportional_normalize(window: &[u32]) -> [u32; 8] {
     }
     let mut result = [0u32; 8];
     for (i, &b) in window.iter().enumerate() {
-        result[i] = ((b as u64 * sum + 8) / 17) as u32;
+        result[i] = ((b as u64 * 17 + sum / 2) / sum) as u32; // add sum / 2 to round to the nearest integer when doing integer division
     }
     result
 }

@@ -137,7 +137,9 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub wb_blocks: Vec<Vec<u32>>,
     pub wb_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
-    pub wb_words: Vec<Vec<u64>>, // TODO: remove when done testing
+    #[allow(dead_code)]
+    #[cfg_attr(feature = "serde", serde(skip))]
+    wb_words: Vec<Vec<u64>>,
 
     // coefficients of polynomials showing that the stuff we throw out from the well-behaved image is disjoint from valid words
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
@@ -149,7 +151,9 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     #[cfg_attr(feature = "serde", serde(rename = "g_normalized_blocks"))]
     pub garbage_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
-    pub garbage_words: Vec<Vec<u64>>, // TODO: remove when done testing
+    #[allow(dead_code)]
+    #[cfg_attr(feature = "serde", serde(skip))]
+    garbage_words: Vec<Vec<u64>>, // Useful for testing. Change to public and remove serde(skip) if needed.
 
     // coefficients of polynomials showing that gcd(garbage, valid_words) = 1
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
@@ -260,9 +264,8 @@ impl FinalizedWitnessData<Fr> {
         garbage_disjoint_set_poly_g.resize(g_n, Fr::zero());
 
         let (words_with_dummies, wb_garbage) =
-            compute_words_with_dummies(&wb_normalized_blocks, &wb_inds);
-        let wb_n = wb_normalized_blocks.len()
-            * wb_normalized_blocks.first().map_or(0, |r| r.len());
+            compute_words_with_dummies(&wb_normalized_blocks);
+        let wb_n = wb_normalized_blocks.len() * wb_normalized_blocks.first().map_or(0, |r| r.len());
         let ext_codewords = compute_ext_codewords(&wb_normalized_blocks, &words_with_dummies);
         let (mut wb_disjoint_set_poly_f, mut wb_disjoint_set_poly_g) =
             show_disjoint_from_valid_words(wb_garbage);
