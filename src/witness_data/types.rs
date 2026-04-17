@@ -74,8 +74,8 @@ pub struct BlockLookup {
     pub num_blocks_is_odd: u8,
     /// 1 if the last block is black, 0 if white
     pub remainder_is_black: u8,
-    /// B^exp where exp = num_blocks - offset (context-dependent; offset = XNOR(remainder_is_black, prev_remainder_is_black, num_blocks_is_odd)); needs u128 for large B
-    pub power_of_B: u128,
+
+    pub next_power_of_B: u128,
 }
 
 // A dummy table state used before decoding actually begins

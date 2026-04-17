@@ -30,7 +30,6 @@ fn compute_lookups_and_raw_decomps<const N: usize>(
         let num_chunks = width.div_ceil(L);
         let mut row_lookups = Vec::new();
         let mut row_decomps = Vec::new();
-        let mut black_r: u8 = 0; // previous chunk's remainder_is_black; starts at 0 per row
         for chunk in 0..num_chunks {
             let mut decomp: [u16; N] = [0; N];
             let start_col = chunk * L;
@@ -43,7 +42,7 @@ fn compute_lookups_and_raw_decomps<const N: usize>(
                 let px = image.get((start_col + i) as u32, row as u32);
                 pixels[i] = px;
                 if px {
-                    int_val |= 1 << (chunk_len - 1 - i);
+                    int_val |= 1 << i;
                 }
             }
 
@@ -66,11 +65,11 @@ fn compute_lookups_and_raw_decomps<const N: usize>(
             let mut blocks_base_b: u128 = 0;
             let num_non_remainder = nb_usize - 1;
             for (i, &b) in blocks_vec[..num_non_remainder].iter().enumerate() {
-                let power: u32 = (num_non_remainder - 1 - i) as u32;
-                blocks_base_b += b as u128 * (B as u128).pow(power);
-                let decomp_idx = N.saturating_sub(num_non_remainder) + i;
-                decomp[decomp_idx] = b;
+                blocks_base_b += b as u128 * (B as u128).pow(i as u32);
+                decomp[i] = b;
             }
+
+            let next_power_of_B = (B as u128).pow(num_non_remainder as u32);
 
             row_decomps.push(decomp); // this decomp ignores the remainder blocks
 
@@ -90,14 +89,6 @@ fn compute_lookups_and_raw_decomps<const N: usize>(
             };
             let remainder_is_black: u8 = if last_is_black { 1 } else { 0 };
 
-            // power_of_B = B^exp where exp = num_blocks - offset
-            // offset = XNOR(remainder_is_black, black_r, num_blocks_is_odd)
-            //        = 1 if even parity among the three bits, 0 if odd parity
-            let xor_abc = remainder_is_black ^ black_r ^ odd;
-            let offset: u8 = 1 - xor_abc; // 1 when even parity, 0 when odd parity
-            let exp = nb.saturating_sub(offset);
-            let power_of_b = (B as u128).pow(exp as u32);
-
             row_lookups.push(BlockLookup {
                 binary_enc: int_val,
                 baseB_enc: blocks_base_b,
@@ -105,9 +96,8 @@ fn compute_lookups_and_raw_decomps<const N: usize>(
                 num_blocks: num_non_remainder as u8,
                 num_blocks_is_odd: odd,
                 remainder_is_black,
-                power_of_B: power_of_b,
+                next_power_of_B,
             });
-            black_r = remainder_is_black;
         }
         lookups.push(row_lookups);
         decomps.push(row_decomps);
@@ -120,11 +110,12 @@ fn compute_lookups_and_raw_decomps<const N: usize>(
 // Return the base-B decomposition of these new, combined chunks
 // N is max number of blocks per chunk
 fn accumulate_decomps<const N: usize>(
-    lookups: &[Vec<BlockLookup>],
+    lookups: &mut Vec<Vec<BlockLookup>>,
     decomps: Vec<Vec<[u16; N]>>,
+    B: usize,
 ) -> Vec<Vec<[u16; N]>> {
     lookups
-        .iter()
+        .iter_mut()
         .zip(decomps)
         .map(|(row_lookups, row_raw)| {
             let mut result = Vec::new();
@@ -144,28 +135,34 @@ fn accumulate_decomps<const N: usize>(
                         decomp = [0; N];
                     } else {
                         // different colors: commit previous remainder as last block
-                        decomp.copy_within(1.., 0);
-                        decomp[N - 1] = last_remainder;
+                        decomp.copy_within(0..N - 1, 1);
+                        decomp[0] = last_remainder;
                         last_remainder = lookup.remainder;
                         last_remainder_is_black = remainder_is_black;
                     }
                 } else {
-                    let first_block_is_black =
-                        (lookup.num_blocks_is_odd != 0) ^ (lookup.remainder_is_black != 0);
-                    let idx = if first_block_is_black == last_remainder_is_black {
-                        N - lookup.num_blocks as usize // first block and remainder are same color: merge
+                    // offset = XOR(remainder_is_black, black_r, num_blocks_is_odd)
+                    //        = 0 if even parity among the three bits, 1 if odd parity
+                    let offset: bool = (lookup.remainder_is_black != 0)
+                        ^ last_remainder_is_black
+                        ^ (lookup.num_blocks_is_odd != 0);
+
+                    if offset {
+                        decomp.copy_within(0..N - 1, 1); // scoot all the decomps over 1 to make room
+                        decomp[0] = last_remainder; // put the remainder in the first position
                     } else {
-                        N - lookup.num_blocks as usize - 1 // remainder is its own block
-                    };
-                    decomp[idx] += last_remainder;
+                        decomp[0] += last_remainder;
+                    }
                     last_remainder = lookup.remainder;
                     last_remainder_is_black = lookup.remainder_is_black != 0;
                 }
             }
 
-            // Commit the final remainder as the last block
-            decomp.copy_within(1.., 0);
-            decomp[N - 1] = last_remainder;
+            // The final remainder goes at the first zero slot; update next_power_of_B accordingly.
+            let final_pos = decomp.iter().position(|&x| x == 0).unwrap_or(N);
+            row_lookups.last_mut().unwrap().next_power_of_B = (B as u128).pow(final_pos as u32);
+
+            decomp[final_pos] = last_remainder;
             result.push(decomp);
             result
         })
@@ -176,8 +173,8 @@ pub fn compute_lookups_and_decomps<const N: usize>(
     image: &BitMatrix,
     B: usize,
 ) -> (Vec<Vec<BlockLookup>>, Vec<Vec<[u16; N]>>) {
-    let (lookups, raw_decomps) = compute_lookups_and_raw_decomps::<N>(image, B);
-    let finalized_decomps = accumulate_decomps::<N>(&lookups, raw_decomps);
+    let (mut lookups, raw_decomps) = compute_lookups_and_raw_decomps::<N>(image, B);
+    let finalized_decomps = accumulate_decomps::<N>(&mut lookups, raw_decomps, B);
     (lookups, finalized_decomps)
 }
 
@@ -410,8 +407,7 @@ mod tests {
         assert_eq!(l.num_blocks, 0); // num_blocks does not include the remainder
         assert_eq!(l.num_blocks_is_odd, 0); // 0 % 2 == 1
         assert_eq!(l.remainder_is_black, 0); // rightmost block is white
-        assert_eq!(l.power_of_B, 1); // nb=0, odd=0, rem_black=0, black_r=0 → xor=0, offset=1, exp=0 → 104^0=1
-        assert_eq!(decomps[0][0], [0u16, 5u16]); // enc_baseB=5 → only one block of len 5
+        assert_eq!(decomps[0][0], [5u16, 0u16]); // enc_baseB=5 → only one block of len 5
     }
 
     #[test]
@@ -428,8 +424,7 @@ mod tests {
         assert_eq!(l.num_blocks, 0);
         assert_eq!(l.num_blocks_is_odd, 0); // 0 % 2 == 0
         assert_eq!(l.remainder_is_black, 1); // rightmost block is black
-        assert_eq!(l.power_of_B, 1); // nb=0, odd=0, rem_black=1, black_r=0 → xor=1, offset=0, exp=0 → 104^0=1
-        assert_eq!(decomps[0][0], [0u16, 5u16]); // enc_baseB=5 → only one block of len 5
+        assert_eq!(decomps[0][0], [5u16, 0u16]); // enc_baseB=5 → only one block of len 5
     }
 
     #[test]
@@ -443,7 +438,7 @@ mod tests {
 
         assert_eq!(lookups.len(), 1);
         let l = &lookups[0][0];
-        assert_eq!(l.binary_enc, 0b1110000000); // first three bits set (big endian encoding)
+        assert_eq!(l.binary_enc, 0b0000000111); // first three bits set (big endian encoding)
         // leftmost block (3) is the only non-remainder block: enc_baseB = 3 * B^0 = 3
         assert_eq!(l.baseB_enc, 3);
         assert_eq!(l.remainder, 7);
@@ -451,7 +446,7 @@ mod tests {
         assert_eq!(l.num_blocks_is_odd, 1); // 1 % 2 == 1
         // first_is_black=true, (2-1)%2=1 → last is opposite → white → remainder_is_black=0
         assert_eq!(l.remainder_is_black, 0);
-        assert_eq!(l.power_of_B, 104); // nb=1, odd=1, rem_black=0, black_r=0 → xor=1, offset=0, exp=1 → 104^1=104
+        assert_eq!(l.next_power_of_B, 104); // single chunk, final_pos=1 → B^1=104
         assert_eq!(decomps[0][0], [3u16, 7u16]);
     }
 
@@ -470,13 +465,13 @@ mod tests {
         assert_eq!(l.remainder, 3);
         // first_is_black=false, (nb-1)%2=3%2=1 → last is opposite → black → remainder_is_black=1
         assert_eq!(l.remainder_is_black, 1);
-        assert_eq!(l.power_of_B, 1166400); // nb=3, odd=1, rem_black=1, black_r=0 → xor=0, offset=1, exp=2 → 1080^2=1166400
         // decomp is little-endian of non-remainder blocks [1,2,4]:
         //   decomp[0]=4 (coeff of B^0), decomp[1]=2 (B^1), decomp[2]=1 (B^2), decomp[3]=0 (pad)
         assert_eq!(decomps[0][0], [1u16, 2u16, 4u16, 3u16]);
-        // baseB_enc = 1*1080^2 + 2*1080 + 4 (excludes remainder=3)
-        let expected = 1u128 * 1080u128.pow(2) + 2 * 1080 + 4;
+        // baseB_enc = 4*1080^2 + 2*1080 + 1 (excludes remainder=3)
+        let expected = 4u128 * 1080u128.pow(2) + 2 * 1080 + 1;
         assert_eq!(l.baseB_enc, expected);
+        assert_eq!(l.next_power_of_B, 1080u128.pow(3)); // single chunk, final_pos=3 → B^3
     }
 
     #[test]
@@ -499,25 +494,24 @@ mod tests {
 
         // Chunk 0
         let l0 = &lookups[0][0];
-        assert_eq!(l0.binary_enc, 0b1100000000); // first two bits are true
+        assert_eq!(l0.binary_enc, 0b0000000011); // 2 LSB's are true
         assert_eq!(l0.baseB_enc, 2); // excludes remainder
         assert_eq!(l0.remainder, 8);
         assert_eq!(l0.num_blocks, 1);
         assert_eq!(l0.num_blocks_is_odd, 1);
         assert_eq!(l0.remainder_is_black, 0); // first=black, (nb-1)%2=1 → last=white
-        assert_eq!(l0.power_of_B, 104); // nb=1, odd=1, rem_black=0, black_r=0 → xor=1, offset=0, exp=1 → 104^1=104
-        assert_eq!(decomps[0][0], [0u16, 2u16]);
+        assert_eq!(decomps[0][0], [2u16, 0u16]);
 
         // Chunk 1
         let l1 = &lookups[0][1];
         // pixels 5-9 of the chunk (cols 15-19) are black → bits 5-9 set
-        assert_eq!(l1.binary_enc, 0b0000011111);
+        assert_eq!(l1.binary_enc, 0b1111100000);
         assert_eq!(l1.baseB_enc, 5); // excluding remainder
         assert_eq!(l1.remainder, 5);
         assert_eq!(l1.num_blocks, 1);
         assert_eq!(l1.num_blocks_is_odd, 1);
         assert_eq!(l1.remainder_is_black, 1); // first=white, (nb-1)%2=1 → last=black
-        assert_eq!(l1.power_of_B, 1); // nb=1, odd=1, rem_black=1, black_r=0 → xor=0, offset=1, exp=0 → 27^0=1
+        assert_eq!(l1.next_power_of_B, 104); // offset=0 (merge), final_pos=1 → B^1=104
         assert_eq!(decomps[0][1], [13u16, 5u16]);
     }
 
@@ -536,14 +530,14 @@ mod tests {
         assert_eq!(decomps.len(), 2);
         assert_eq!(lookups[0][0].remainder_is_black, 1); // row 0: last block black
         assert_eq!(lookups[1][0].remainder_is_black, 0); // row 1: last block white
-        assert_eq!(lookups[0][0].power_of_B, 1); // nb=0, odd=0, rem_black=1, black_r=0 → xor=1, offset=0, exp=0 → 104^0=1
-        assert_eq!(lookups[1][0].power_of_B, 1); // nb=0, odd=0, rem_black=0, black_r=0 → xor=0, offset=1, exp=0 → 104^0=1
-        assert_eq!(decomps[0][0], [0u16, 5u16]);
-        assert_eq!(decomps[1][0], [0u16, 5u16]);
+        assert_eq!(lookups[0][0].next_power_of_B, 1); // single chunk, final_pos=0 → B^0=1
+        assert_eq!(lookups[1][0].next_power_of_B, 1); // single chunk, final_pos=0 → B^0=1
+        assert_eq!(decomps[0][0], [5u16, 0u16]);
+        assert_eq!(decomps[1][0], [5u16, 0u16]);
     }
 
     #[test]
-    fn test_compute_lookups_zero_blocks() {
+    fn test_compute_lookups_zero_block() {
         let row: &[bool] = &[
             false, false, false, false, false, true, true, true, true, true, true, true, true,
             true, true, true, true, true, true, true, true, true, true, false, false, false, false,
@@ -555,9 +549,29 @@ mod tests {
         assert_eq!(lookups[0].len(), 3); // 3 chunks in row
         assert_eq!(decomps.len(), 1);
         assert_eq!(decomps[0].len(), 3); // 3 block chunks
-        assert_eq!(decomps[0][0], [0u16, 5u16]);
+        assert_eq!(decomps[0][0], [5u16, 0u16]);
         assert_eq!(decomps[0][1], [0u16, 0u16]); // 0 decomp for 0 block chunk
         assert_eq!(decomps[0][2], [18u16, 7u16]); // combined chunk and last remainder
+        assert_eq!(lookups[0][2].next_power_of_B, 104); // offset=0 (merge), final_pos=1 → B^1=104
+    }
+
+    #[test]
+    fn test_compute_lookups_zero_block_no_merge() {
+        let row: &[bool] = &[
+            false, false, false, false, false, true, true, true, true, true, false, false, false,
+            false, false, false, false, false, false, false, true, true, false, false, false,
+            false, false, false, false, false,
+        ];
+        let image = make_bitmatrix(&[row]);
+        let (lookups, decomps) = compute_lookups_and_decomps::<3>(&image, 104);
+        assert_eq!(lookups.len(), 1); // 1 row
+        assert_eq!(lookups[0].len(), 3); // 5 chunks in row
+        assert_eq!(decomps.len(), 1);
+        assert_eq!(decomps[0].len(), 3); // 4 block chunks
+        assert_eq!(decomps[0][0], [5u16, 0, 0]);
+        assert_eq!(decomps[0][1], [5u16, 0, 0]); // nb = 0 but previous remainder goes here
+        assert_eq!(decomps[0][2], [10u16, 2, 8]);
+        assert_eq!(lookups[0][2].next_power_of_B, 10816); // offset=1 (separate), final_pos=2 → B^2=10816
     }
 
     #[test]
@@ -576,7 +590,7 @@ mod tests {
         // and merged at the wrong index, producing [0, 8, 2, 5] instead.
         let row: &[bool] = &[
             true, true, true, true, true, false, false, false, false, false, // chunk 0
-            true, true, true, false, false, true, true, true, true, true,    // chunk 1
+            true, true, true, false, false, true, true, true, true, true, // chunk 1
         ];
         let image = make_bitmatrix(&[row]);
         let (lookups, decomps) = compute_lookups_and_decomps::<4>(&image, 104);
@@ -598,10 +612,11 @@ mod tests {
         assert_eq!(l1.remainder_is_black, 1);
 
         // Chunk 0 decomp: only its one non-remainder block (5); its remainder feeds into chunk 1
-        assert_eq!(decomps[0][0], [0u16, 0, 0, 5]);
+        assert_eq!(decomps[0][0], [5u16, 0, 0, 0]);
         // Chunk 1 decomp: [prev_rem=5, block0=3, block1=2, final_rem=5]
         // baseB_sum = 5*104^3 + 3*104^2 + 2*104 + 5 = 5656981 = block_chunks[1] in circuit
         assert_eq!(decomps[0][1], [5u16, 3, 2, 5]);
+        assert_eq!(lookups[0][1].next_power_of_B, 1124864); // offset=1 (separate), final_pos=3 → B^3=104^3=1124864
     }
 
     // -------------------------------------------------------------------------
