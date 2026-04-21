@@ -235,8 +235,8 @@ impl FinalizedWitnessData<Fr> {
                 row.len()
             );
         }
-        const WB_B: usize = 104;
-        const G_B: usize = 1080;
+        const WB_B: usize = 105;
+        const G_B: usize = 1081;
 
         let wb_ind_counts: Vec<u32> = wb_inds
             .iter()
