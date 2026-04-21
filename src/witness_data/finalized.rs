@@ -12,6 +12,7 @@ use super::block_ops::{
     compute_blocks, compute_ext_codewords, compute_lookups_and_decomps, compute_normalized_blocks,
     compute_words, compute_words_with_dummies,
 };
+use super::mode_config::{G_NUM_DECOMPS, ModeConfig, WB_MAX_DECOMPS};
 use super::types::{
     BarcodeStats, BlockLookup, EC_TABLE_STATE, PAD_TABLE_STATE, PolynomialResult, RowIndicatorVars,
     SLD_TABLE_STATE, TableState, ZERO_TABLE_STATE,
@@ -21,12 +22,6 @@ use crate::disjoint_set_polynomials::show_disjoint_from_valid_words;
 
 #[cfg(feature = "serde")]
 use super::serde_support::{serialize_bitmatrix, serialize_fr_vec, serialize_u16_array_vec_2d};
-
-const WB_NB: usize = 281;
-const G_NB: usize = 1080;
-
-const WB_NUM_DECOMPS: usize = 4;
-const G_NUM_DECOMPS: usize = 10;
 
 /// Builds the full 5400-entry `char_table_states` array matching the forward-iteration
 /// order used by the ZoKrates `codewords_to_chars` circuit (which walks `corrected_codewords`
@@ -113,7 +108,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
         feature = "serde",
         serde(serialize_with = "serialize_u16_array_vec_2d")
     )]
-    pub wb_baseB_decomps: Vec<Vec<[u16; WB_NUM_DECOMPS]>>,
+    pub wb_baseB_decomps: Vec<Vec<[u16; WB_MAX_DECOMPS]>>,
 
     // The "garbage" rows of the image that will not decode
     // Will always have exactly 89 rows. Padded with zero rows.
@@ -201,6 +196,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
 
 impl FinalizedWitnessData<Fr> {
     pub fn new(
+        config: &ModeConfig,
         width: usize,
         height: usize,
         image: Vec<Vec<u8>>,
@@ -235,22 +231,19 @@ impl FinalizedWitnessData<Fr> {
                 row.len()
             );
         }
-        const WB_B: usize = 105;
-        const G_B: usize = 1081;
-
         let wb_ind_counts: Vec<u32> = wb_inds
             .iter()
             .map(|target| wb_inds.iter().filter(|&&x| x == *target).count() as u32)
             .collect();
         let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
         let (wb_lookups, wb_baseB_decomps) =
-            compute_lookups_and_decomps::<WB_NUM_DECOMPS>(&well_behaved, WB_B);
+            compute_lookups_and_decomps::<WB_MAX_DECOMPS>(&well_behaved, config.wb_b);
         let (g_lookups, g_baseB_decomps) =
-            compute_lookups_and_decomps::<G_NUM_DECOMPS>(&garbage_image, G_B);
+            compute_lookups_and_decomps::<G_NUM_DECOMPS>(&garbage_image, config.g_b);
 
-        let wb_blocks = compute_blocks(&well_behaved, WB_NB);
+        let wb_blocks = compute_blocks(&well_behaved, config.wb_nb);
         let wb_normalized_blocks = compute_normalized_blocks(&wb_blocks);
-        let g_blocks = compute_blocks(&garbage_image, G_NB);
+        let g_blocks = compute_blocks(&garbage_image, config.g_nb);
         let garbage_normalized_blocks = compute_normalized_blocks(&g_blocks);
 
         let wb_words = compute_words(&wb_normalized_blocks);
@@ -310,7 +303,7 @@ impl FinalizedWitnessData<Fr> {
         }
     }
 
-    pub fn from_witness_data(witness_data: &WitnessData) -> Result<Self, String> {
+    pub fn from_witness_data(witness_data: &WitnessData, config: &ModeConfig) -> Result<Self, String> {
         let bin_image = Option::ok_or(witness_data.bin_image.clone(), "no binarized image data")?;
 
         let well_behaved = Option::ok_or(witness_data.wb_image.clone(), "no wb_image data")?;
@@ -357,6 +350,7 @@ impl FinalizedWitnessData<Fr> {
         chars.resize(5400, 0);
 
         Ok(Self::new(
+            config,
             witness_data.width,
             witness_data.height,
             witness_data.image.clone(),

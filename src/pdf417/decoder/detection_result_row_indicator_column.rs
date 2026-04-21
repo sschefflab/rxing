@@ -427,6 +427,7 @@ fn test_witness_collection_fails_on_missing_first_three_rows() {
 
     // 6. FINALIZATION CHECK
     // This proves the 'security' of your collection: incomplete data cannot be finalized
-    let result = witness.finalize();
+    let hd_config = crate::witness_data::ImageMode::Hd.config();
+    let result = witness.finalize(&hd_config);
     assert!(result.is_err(), "Finalization should fail without first 3 row indicators");
 }

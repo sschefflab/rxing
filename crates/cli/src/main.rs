@@ -9,6 +9,25 @@ use rxing::{BarcodeFormat, MultiFormatWriter, Writer};
 #[allow(unused_imports)]
 use serde_json::de;
 
+/// CLI-facing image mode selector (maps to rxing's ImageMode).
+#[derive(clap::ValueEnum, Clone, Default)]
+enum CliImageMode {
+    /// 1080×720 (HD). Default.
+    #[default]
+    Hd,
+    /// 640×480 (SD).
+    Sd,
+}
+
+impl CliImageMode {
+    fn to_rxing_mode(&self) -> rxing::ImageMode {
+        match self {
+            CliImageMode::Hd => rxing::ImageMode::Hd,
+            CliImageMode::Sd => rxing::ImageMode::Sd,
+        }
+    }
+}
+
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -56,6 +75,10 @@ enum Commands {
         /// Save witness data to JSON file (for zero-knowledge proof generation)
         #[arg(long)]
         save_witness: Option<String>,
+
+        /// Image resolution mode for witness generation constants (hd = 1080×720, sd = 640×480)
+        #[arg(long, value_enum, default_value = "hd")]
+        image_mode: CliImageMode,
 
         /// Unspecified, application-specific hint.
         #[arg(long)]
@@ -261,6 +284,7 @@ fn main() -> ExitCode {
             parsed_results,
             raw_bytes,
             save_witness,
+            image_mode,
         } => decode_command(
             &cli.file_name,
             try_harder,
@@ -280,6 +304,7 @@ fn main() -> ExitCode {
             parsed_results,
             raw_bytes,
             save_witness,
+            image_mode,
         ),
         Commands::Encode {
             barcode_type,
@@ -348,6 +373,7 @@ fn decode_command(
     parsed_bytes: &bool,
     raw_bytes: &bool,
     save_witness: &Option<String>,
+    image_mode: &CliImageMode,
 ) -> ExitCode {
     let mut hints: rxing::DecodingHintDictionary = HashMap::new();
     if let Some(other) = other {
@@ -489,6 +515,7 @@ fn decode_command(
                 &extension,
                 &mut hints.into(),
                 save_witness.as_ref().unwrap(),
+                &image_mode.to_rxing_mode(),
                 detailed_result,
                 detailed_results_json,
                 raw_bytes,
@@ -538,6 +565,7 @@ fn decode_with_witness_extraction(
     extension: &str,
     hints: &mut rxing::DecodeHints,
     witness_path: &str,
+    image_mode: &rxing::ImageMode,
     detailed_result: &bool,
     detailed_results_json: &bool,
     raw_bytes: &bool,
@@ -631,10 +659,11 @@ fn decode_with_witness_extraction(
         decode_and_extract(&mut bitmap, hints, &mut witness_data)
     };
 
+    let mode_config = image_mode.config();
     match decode_result {
         Ok((result, witness)) => {
             // Save witness data to JSON
-            let finalized_witness = match FinalizedWitnessData::from_witness_data(&witness) {
+            let finalized_witness = match FinalizedWitnessData::from_witness_data(&witness, &mode_config) {
                 Ok(fw) => fw,
                 Err(e) => {
                     println!("Error finalizing witness data: {:?}", e);

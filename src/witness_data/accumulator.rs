@@ -3,6 +3,7 @@
  */
 
 use super::finalized::FinalizedWitnessData;
+use super::mode_config::ModeConfig;
 use super::types::{BarcodeStats, PolynomialResult, RowIndicatorVars, TableState};
 use crate::common::BitMatrix;
 use ark_ed25519::Fr;
@@ -184,8 +185,8 @@ impl WitnessData {
     /**
      * Makes sure that all optional fields have data in them.
      */
-    pub fn finalize(&self) -> Result<FinalizedWitnessData<Fr>, String> {
-        FinalizedWitnessData::from_witness_data(self)
+    pub fn finalize(&self, config: &ModeConfig) -> Result<FinalizedWitnessData<Fr>, String> {
+        FinalizedWitnessData::from_witness_data(self, config)
     }
 
     /**
@@ -273,7 +274,8 @@ mod tests {
         let mut witness = WitnessData::new(2, 2, image);
 
         // Test that finalization fails when fields are missing
-        assert!(witness.finalize().is_err());
+        let hd_config = super::super::mode_config::ImageMode::Hd.config();
+        assert!(witness.finalize(&hd_config).is_err());
 
         // Populate required fields
         witness.set_bin_image(BitMatrix::new(2, 2).unwrap());
@@ -304,7 +306,7 @@ mod tests {
 
         // Verify successful finalization
         let finalized = witness
-            .finalize()
+            .finalize(&hd_config)
             .expect("Should finalize with all fields set");
         assert_eq!(finalized.stats.num_rows, 30);
     }
