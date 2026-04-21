@@ -335,18 +335,36 @@ pub fn compute_words_with_dummies(
     (words_with_dummies, garbage)
 }
 
-/// Proportionally normalizes an 8-element block window so that each element
-/// satisfies `|blocks[i] * sum - 17 * result[i]| <= 8`. Returns all zeros
-/// for a zero window (sum == 0).
+/// Normalizes an 8-element block window using edge-to-similar-edge pairs
+/// (ISO 15438 Annex J.3). Computes 6 overlapping paired measurements
+/// (e[i] = b[i]+b[i+1]), normalizes each pair, then reconstructs 8
+/// individual values. This cancels edge-position noise where a bar/space
+/// boundary lands slightly off: the bar appears narrower and the adjacent
+/// space wider by the same amount, but their sum is unaffected.
+/// Returns all zeros for a zero window (sum == 0).
 fn proportional_normalize(window: &[u32]) -> [u32; 8] {
     let sum: u64 = window.iter().map(|&x| x as u64).sum();
     if sum == 0 {
         return [0u32; 8];
     }
-    let mut result = [0u32; 8];
-    for (i, &b) in window.iter().enumerate() {
-        result[i] = ((b as u64 * 17 + sum / 2) / sum) as u32; // add sum / 2 to round to the nearest integer when doing integer division
+
+    // Normalize the 6 overlapping pairs
+    let mut pairs = [0u32; 6];
+    for i in 0..6 {
+        let e = (window[i] + window[i + 1]) as u64;
+        pairs[i] = ((e * 17 + sum / 2) / sum) as u32;
     }
+
+    // Reconstruct individual values. Use n[0] as anchor (normalized directly),
+    // then derive n[1..6] from consecutive pair differences, and n[7] from total=17.
+    let mut result = [0u32; 8];
+    result[0] = ((window[0] as u64 * 17 + sum / 2) / sum) as u32;
+    for i in 0..6 {
+        result[i + 1] = pairs[i].saturating_sub(result[i]);
+    }
+    let used: u32 = result[..7].iter().sum();
+    result[7] = 17u32.saturating_sub(used);
+
     result
 }
 
