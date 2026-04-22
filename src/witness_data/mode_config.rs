@@ -40,14 +40,14 @@ impl ImageMode {
     pub fn config(self) -> ModeConfig {
         match self {
             ImageMode::Hd => ModeConfig {
-                wb_nb: 281,
+                wb_nb: 273,
                 wb_b: 105,
-                wb_num_decomps: 4,
+                wb_num_decomps: 3,
                 g_nb: 1080,
                 g_b: 1081,
             },
             ImageMode::Sd => ModeConfig {
-                wb_nb: 281,
+                wb_nb: 273,
                 wb_b: 69,
                 wb_num_decomps: 5,
                 g_nb: 640,
