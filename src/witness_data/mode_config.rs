@@ -48,7 +48,7 @@ impl ImageMode {
             },
             ImageMode::Sd => ModeConfig {
                 wb_nb: 273,
-                wb_b: 69,
+                wb_b: 65,
                 wb_num_decomps: 5,
                 g_nb: 640,
                 g_b: 641,
