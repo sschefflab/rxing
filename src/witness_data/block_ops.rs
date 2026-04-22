@@ -335,6 +335,35 @@ pub fn compute_words_with_dummies(
     (words_with_dummies, garbage)
 }
 
+/// For each garbage image row, finds the first column whose bar-space pattern is not a
+/// valid PDF417 word (not START, not STOP, doesn't decode exactly).  Every real garbage
+/// row is guaranteed to have at least one such column — a row is garbage precisely because
+/// at least one of its columns failed to decode.  Zero-padded rows (all-zero blocks) also
+/// satisfy this since `get_word` returns 0, which is not a valid codeword.
+///
+/// Returns `(garbage_words, garbage_word_index)`, each with one entry per row, where
+/// `garbage_words[r]` is the invalid bar-space pattern and `garbage_word_index[r]` is its
+/// 0-based column position.
+pub fn compute_garbage_word_witnesses(
+    normalized_blocks: &[Vec<[u32; 8]>],
+) -> (Vec<u64>, Vec<u64>) {
+    normalized_blocks
+        .iter()
+        .map(|row| {
+            row.iter()
+                .enumerate()
+                .find(|(_, block)| {
+                    let word = get_word(block);
+                    word != START_WORD as u64
+                        && word != STOP_WORD as u64
+                        && !decodes_exactly(block)
+                })
+                .map(|(idx, block)| (get_word(block), idx as u64))
+                .expect("garbage row has no invalid word — every block decoded as a valid codeword")
+        })
+        .unzip()
+}
+
 /// Normalizes an 8-element block window using edge-to-similar-edge pairs
 /// (ISO 15438 Annex J.3). Computes 6 overlapping paired measurements
 /// (e[i] = b[i]+b[i+1]), normalizes each pair, then reconstructs 8
@@ -768,5 +797,88 @@ mod tests {
         let normalized = compute_normalized_blocks(&blocks);
         assert_eq!(normalized[0].len(), 1); // only window 1 survives
         assert_eq!(normalized[0][0].iter().sum::<u32>(), 17);
+    }
+
+    // Word [7,1,1,3,1,1,1,2] is the STOP pattern (digits of STOP_WORD=71131112, sum=17).
+    const STOP_BLOCKS: [u32; 8] = [7, 1, 1, 3, 1, 1, 1, 2];
+
+    // -------------------------------------------------------------------------
+    // compute_garbage_word_witnesses
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_garbage_witness_zero_row_picks_col_0() {
+        // All-zero blocks: get_word returns 0 for every column.  0 is not a valid
+        // codeword, so the function must pick column 0.
+        let row = vec![[0u32; 8]; 4];
+        let (words, indices) = compute_garbage_word_witnesses(&[row]);
+        assert_eq!(words, vec![0u64]);
+        assert_eq!(indices, vec![0u64]);
+    }
+
+    #[test]
+    fn test_garbage_witness_skips_start_word() {
+        // Column 0 is the START pattern — excluded by name — so the function must
+        // skip it and pick the zero block at column 1.
+        let row = vec![START_BLOCKS, [0u32; 8]];
+        let (words, indices) = compute_garbage_word_witnesses(&[row]);
+        assert_eq!(words[0], 0u64);
+        assert_eq!(indices[0], 1u64);
+    }
+
+    #[test]
+    fn test_garbage_witness_skips_stop_word() {
+        // Column 0 is the STOP pattern — excluded by name — so the function must
+        // skip it and pick the zero block at column 1.
+        let row = vec![STOP_BLOCKS, [0u32; 8]];
+        let (words, indices) = compute_garbage_word_witnesses(&[row]);
+        assert_eq!(words[0], 0u64);
+        assert_eq!(indices[0], 1u64);
+    }
+
+    #[test]
+    fn test_garbage_witness_picks_first_invalid_not_last() {
+        // Columns 0 and 2 are zero (invalid); column 1 is START (excluded).
+        // The first invalid column is 0, so that must be the one returned.
+        let row = vec![[0u32; 8], START_BLOCKS, [0u32; 8]];
+        let (words, indices) = compute_garbage_word_witnesses(&[row]);
+        assert_eq!(words[0], 0u64);
+        assert_eq!(indices[0], 0u64); // column 0, not column 2
+    }
+
+    #[test]
+    fn test_garbage_witness_multiple_rows_independent() {
+        // Row 0: START then zero → skips START, picks zero at column 1.
+        // Row 1: three zero blocks → picks zero at column 0.
+        let rows = vec![
+            vec![START_BLOCKS, [0u32; 8]],
+            vec![[0u32; 8]; 3],
+        ];
+        let (words, indices) = compute_garbage_word_witnesses(&rows);
+        assert_eq!(words, vec![0u64, 0u64]);
+        assert_eq!(indices, vec![1u64, 0u64]);
+    }
+
+    #[test]
+    fn test_garbage_witness_word_value_is_correct() {
+        // Use a non-zero invalid block so we can verify the actual word value
+        // returned, not just the index.  Block [2,3,4,1,2,3,1,1] sums to 17 and
+        // its word is the digit-concatenation 23412311.
+        let invalid_block: [u32; 8] = [2, 3, 4, 1, 2, 3, 1, 1];
+        let expected_word = get_word(&invalid_block);
+        let row = vec![START_BLOCKS, invalid_block];
+        let (words, indices) = compute_garbage_word_witnesses(&[row]);
+        assert_eq!(words[0], expected_word);
+        assert_eq!(indices[0], 1u64);
+    }
+
+    #[test]
+    #[should_panic(expected = "garbage row has no invalid word")]
+    fn test_garbage_witness_panics_when_no_invalid_word() {
+        // A row where every block is START or STOP (both excluded by name).
+        // The function must panic because no invalid word exists — this violates
+        // the invariant that every garbage row has at least one failing column.
+        let row = vec![START_BLOCKS, STOP_BLOCKS, START_BLOCKS];
+        compute_garbage_word_witnesses(&[row]);
     }
 }

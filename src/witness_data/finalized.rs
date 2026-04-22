@@ -9,8 +9,9 @@ use serde::Serialize;
 
 use super::accumulator::WitnessData;
 use super::block_ops::{
-    compute_blocks, compute_ext_codewords, compute_lookups_and_decomps, compute_normalized_blocks,
-    compute_words, compute_words_with_dummies,
+    compute_blocks, compute_ext_codewords, compute_garbage_word_witnesses,
+    compute_lookups_and_decomps, compute_normalized_blocks, compute_words,
+    compute_words_with_dummies,
 };
 use super::mode_config::{G_NUM_DECOMPS, ModeConfig, WB_MAX_DECOMPS};
 use super::types::{
@@ -148,9 +149,16 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
 
     #[allow(dead_code)]
     #[cfg_attr(feature = "serde", serde(skip))]
-    garbage_words: Vec<Vec<u64>>, // Useful for testing. Change to public and remove serde(skip) if needed.
+    garbage_rows: Vec<Vec<u64>>, // Full 2D word grid for the garbage image; used by the circuit via compute_words.
 
-    // coefficients of polynomials showing that gcd(garbage, valid_words) = 1
+    /// For each garbage row, the bar-space pattern of the first column that failed to decode.
+    /// Proves that row r has at least one invalid word at position garbage_word_index[r].
+    pub garbage_words: Vec<u64>,
+
+    /// For each garbage row, the 0-based column index of garbage_words[r] within that row.
+    pub garbage_word_index: Vec<u64>,
+
+    // coefficients of polynomials showing that gcd(garbage_words, valid_words) = 1
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
     pub garbage_disjoint_set_poly_f: Vec<F>,
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
@@ -248,11 +256,12 @@ impl FinalizedWitnessData<Fr> {
 
         let wb_words = compute_words(&wb_normalized_blocks);
 
-        let garbage_words = compute_words(&garbage_normalized_blocks);
-        let g_n = garbage_normalized_blocks.len()
-            * garbage_normalized_blocks.first().map_or(0, |r| r.len());
+        let garbage_rows = compute_words(&garbage_normalized_blocks);
+        let (garbage_words, garbage_word_index) =
+            compute_garbage_word_witnesses(&garbage_normalized_blocks);
+        let g_n = garbage_normalized_blocks.len();
         let (mut garbage_disjoint_set_poly_f, mut garbage_disjoint_set_poly_g) =
-            show_disjoint_from_valid_words(garbage_words.clone().into_iter().flatten().collect());
+            show_disjoint_from_valid_words(garbage_words.clone());
         garbage_disjoint_set_poly_f.resize(2789, Fr::zero());
         garbage_disjoint_set_poly_g.resize(g_n, Fr::zero());
 
@@ -287,7 +296,9 @@ impl FinalizedWitnessData<Fr> {
             wb_disjoint_set_poly_g,
             g_blocks,
             garbage_normalized_blocks,
+            garbage_rows,
             garbage_words,
+            garbage_word_index,
             garbage_disjoint_set_poly_f,
             garbage_disjoint_set_poly_g,
             stats,
