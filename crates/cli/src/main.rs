@@ -17,6 +17,8 @@ enum CliImageMode {
     Hd,
     /// 640×480 (SD).
     Sd,
+    /// 192×144 (Small).
+    Small,
 }
 
 impl CliImageMode {
@@ -24,6 +26,7 @@ impl CliImageMode {
         match self {
             CliImageMode::Hd => rxing::ImageMode::Hd,
             CliImageMode::Sd => rxing::ImageMode::Sd,
+            CliImageMode::Small => rxing::ImageMode::Small,
         }
     }
 }

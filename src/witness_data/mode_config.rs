@@ -6,8 +6,8 @@
  */
 
 /// Fixed upper bound for the well-behaved decomp array size (max across all modes).
-/// HD uses 4 slots; SD uses all 5. HD output zero-pads the unused 5th slot.
-pub const WB_MAX_DECOMPS: usize = 5;
+/// HD uses 3 slots; SD uses 5; Small uses all 10. Unused slots are zero-padded.
+pub const WB_MAX_DECOMPS: usize = 10;
 
 /// Fixed decomp array size for the garbage image (same across all modes).
 pub const G_NUM_DECOMPS: usize = 10;
@@ -20,6 +20,8 @@ pub enum ImageMode {
     Hd,
     /// 640×480 (SD).
     Sd,
+    /// 192×144 (Small).
+    Small,
 }
 
 /// Per-mode constants used during witness generation.
@@ -52,6 +54,13 @@ impl ImageMode {
                 wb_num_decomps: 5,
                 g_nb: 640,
                 g_b: 641,
+            },
+            ImageMode::Small => ModeConfig {
+                wb_nb: 273,
+                wb_b: 25,
+                wb_num_decomps: 10,
+                g_nb: 192,
+                g_b: 193,
             },
         }
     }
