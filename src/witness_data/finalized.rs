@@ -134,8 +134,9 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub wb_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
     #[allow(dead_code)]
+    // #[cfg_attr(feature = "serde", serde(rename = "words"))]
     #[cfg_attr(feature = "serde", serde(skip))]
-    wb_words: Vec<Vec<u64>>,
+    wb_words: Vec<Vec<u64>>, // only used for testing
 
     // coefficients of polynomials showing that the stuff we throw out from the well-behaved image is disjoint from valid words
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_fr_vec"))]
@@ -149,7 +150,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
 
     #[allow(dead_code)]
     #[cfg_attr(feature = "serde", serde(skip))]
-    garbage_rows: Vec<Vec<u64>>, // Full 2D word grid for the garbage image; used by the circuit via compute_words.
+    garbage_rows: Vec<Vec<u64>>, // Full 2D word grid for the garbage image; used by the circuit via compute_words. Only used for testing.
 
     /// For each garbage row, the bar-space pattern of the first column that failed to decode.
     /// Proves that row r has at least one invalid word at position garbage_word_index[r].
@@ -265,8 +266,7 @@ impl FinalizedWitnessData<Fr> {
         garbage_disjoint_set_poly_f.resize(2789, Fr::zero());
         garbage_disjoint_set_poly_g.resize(g_n, Fr::zero());
 
-        let (words_with_dummies, wb_garbage) =
-            compute_words_with_dummies(&wb_normalized_blocks);
+        let (words_with_dummies, wb_garbage) = compute_words_with_dummies(&wb_normalized_blocks);
         let wb_n = wb_normalized_blocks.len() * wb_normalized_blocks.first().map_or(0, |r| r.len());
         let ext_codewords = compute_ext_codewords(&wb_normalized_blocks, &words_with_dummies);
         let (mut wb_disjoint_set_poly_f, mut wb_disjoint_set_poly_g) =
@@ -314,7 +314,10 @@ impl FinalizedWitnessData<Fr> {
         }
     }
 
-    pub fn from_witness_data(witness_data: &WitnessData, config: &ModeConfig) -> Result<Self, String> {
+    pub fn from_witness_data(
+        witness_data: &WitnessData,
+        config: &ModeConfig,
+    ) -> Result<Self, String> {
         let bin_image = Option::ok_or(witness_data.bin_image.clone(), "no binarized image data")?;
 
         let well_behaved = Option::ok_or(witness_data.wb_image.clone(), "no wb_image data")?;
@@ -335,15 +338,24 @@ impl FinalizedWitnessData<Fr> {
         )?;
         all_left_row_indicators.resize(90, 0);
 
+        // Circuits expect codewords left-padded to W=2700: actual codewords at the end,
+        // leading zeros as padding. This lets the SLD (always non-zero, always first real
+        // codeword) serve as a natural divider between padding and real data in the circuits.
+        // With left-padding the polynomial evaluation in error_correction.zok reduces to
+        // the standard descending evaluation that rxing computes.
         const ZOK_W: usize = 2700;
-        let mut codewords = Option::ok_or(witness_data.codewords.clone(), "no codewords data")?;
-        codewords.resize(ZOK_W, 0);
+        let raw_codewords = Option::ok_or(witness_data.codewords.clone(), "no codewords data")?;
+        let n = raw_codewords.len().min(ZOK_W);
+        let mut codewords = vec![0u32; ZOK_W];
+        codewords[ZOK_W - n..].copy_from_slice(&raw_codewords[..n]);
 
-        let mut corrected_codewords = Option::ok_or(
+        let raw_corrected = Option::ok_or(
             witness_data.corrected_codewords.clone(),
             "no corrected codewords data",
         )?;
-        corrected_codewords.resize(ZOK_W, 0);
+        let nc = raw_corrected.len().min(ZOK_W);
+        let mut corrected_codewords = vec![0u32; ZOK_W];
+        corrected_codewords[ZOK_W - nc..].copy_from_slice(&raw_corrected[..nc]);
 
         let polynomial_results = Option::ok_or(
             witness_data.polynomial_results.clone(),
