@@ -134,7 +134,6 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub wb_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
     #[allow(dead_code)]
-    // #[cfg_attr(feature = "serde", serde(rename = "words"))]
     #[cfg_attr(feature = "serde", serde(skip))]
     wb_words: Vec<Vec<u64>>, // only used for testing
 
