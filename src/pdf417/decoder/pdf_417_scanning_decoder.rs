@@ -20,6 +20,7 @@ use crate::{
     Exceptions, Point, WitnessData,
     common::{BitMatrix, DecoderRXingResult, Result},
     pdf417::pdf_417_common,
+    witness_data::constants::{GARBAGE_ROWS, MAX_EC_CODEWORDS},
 };
 
 use super::{
@@ -36,7 +37,6 @@ use super::{
 const CODEWORD_SKEW_SIZE: u32 = 2;
 
 const MAX_ERRORS: u32 = 3;
-const MAX_EC_CODEWORDS: u32 = 512;
 // const  errorCorrection:ErrorCorrection =  ErrorCorrection::new();
 
 // TODO don't pass in minCodewordWidth and maxCodewordWidth, pass in barcode columns for start and stop pattern
@@ -253,7 +253,6 @@ pub fn decode(
             .collect();
         garbage_inds.append(&mut outside_inds);
 
-        const GARBAGE_ROWS: usize = 89;
         assert!(
             garbage_inds.len() <= GARBAGE_ROWS,
             "Too many garbage rows: {} (max {})",
@@ -945,7 +944,7 @@ fn correctErrors(
 ) -> Result<usize> {
     if !erasures.is_empty() && erasures.len() as u32 > numECCodewords / 2 + MAX_ERRORS
         /*|| numECCodewords < 0*/
-        || numECCodewords > MAX_EC_CODEWORDS
+        || numECCodewords > MAX_EC_CODEWORDS as u32
     {
         // Too many errors or EC Codewords is corrupted
         return Err(Exceptions::CHECKSUM);

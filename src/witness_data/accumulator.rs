@@ -228,6 +228,7 @@ impl WitnessData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::constants::GARBAGE_ROWS;
 
     #[test]
     fn test_witness_data_creation() {
@@ -281,8 +282,8 @@ mod tests {
         witness.set_bin_image(BitMatrix::new(2, 2).unwrap());
         witness.wb_image = Some(BitMatrix::new(2, 2).unwrap());
         witness.wb_inds = Some(vec![0, 1]);
-        witness.garbage_image = Some(BitMatrix::new(2, 89).unwrap());
-        witness.garbage_inds = Some(vec![-1; 89]);
+        witness.garbage_image = Some(BitMatrix::new(2, GARBAGE_ROWS as u32).unwrap());
+        witness.garbage_inds = Some(vec![-1; GARBAGE_ROWS]);
         witness.set_barcode_stats(30, 10, 2);
         witness.set_row_indicators(RowIndicatorVars {
             l0: 1,

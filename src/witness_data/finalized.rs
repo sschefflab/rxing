@@ -8,6 +8,7 @@ use ark_ff::{FftField, PrimeField, Zero};
 use serde::Serialize;
 
 use super::accumulator::WitnessData;
+use super::constants::{MAX_CHARS, MAX_DATA_CODEWORDS, MAX_ROWS};
 use super::block_ops::{
     compute_blocks, compute_ext_codewords, compute_garbage_word_witnesses,
     compute_lookups_and_decomps, compute_normalized_blocks, compute_words,
@@ -24,7 +25,7 @@ use crate::disjoint_set_polynomials::show_disjoint_from_valid_words;
 #[cfg(feature = "serde")]
 use super::serde_support::{serialize_bitmatrix, serialize_fr_vec, serialize_u16_array_vec_2d};
 
-/// Builds the full 5400-entry `char_table_states` array matching the forward-iteration
+/// Builds the full `MAX_CHARS`-entry `char_table_states` array matching the forward-iteration
 /// order used by the ZoKrates `codewords_to_chars` circuit (which walks `corrected_codewords`
 /// from index 0 upward).
 ///
@@ -38,7 +39,7 @@ use super::serde_support::{serialize_bitmatrix, serialize_fr_vec, serialize_u16_
 ///   4. Remaining pad codewords → 2 `PAD_TABLE_STATE` entries each
 ///      where pad_count = row_count × column_count − 1 (SLD) − ec_count − text_codewords
 ///   5. 2^(ec_level + 1) EC codewords → 2 `EC_TABLE_STATE` entries each
-/// Total is padded to exactly 5400.
+/// Total is padded to exactly `MAX_CHARS`.
 fn add_dummy_table_states(char_table_states: &mut Vec<TableState>, stats: &BarcodeStats) {
     let text_codeword_count = char_table_states.len() as u32 / 2;
 
@@ -62,10 +63,10 @@ fn add_dummy_table_states(char_table_states: &mut Vec<TableState>, stats: &Barco
         char_table_states.push(EC_TABLE_STATE);
     }
 
-    // Prepend zero states to reach exactly 5400 total states.
+    // Prepend zero states to reach exactly MAX_CHARS total states.
     let current_count = char_table_states.len();
-    if current_count < 5400 {
-        let zero_count = 5400 - current_count;
+    if current_count < MAX_CHARS {
+        let zero_count = MAX_CHARS - current_count;
         let mut result: Vec<TableState> = (0..zero_count).map(|_| ZERO_TABLE_STATE).collect();
         result.append(char_table_states);
         *char_table_states = result;
@@ -335,26 +336,25 @@ impl FinalizedWitnessData<Fr> {
             witness_data.all_left_row_indicators.clone(),
             "no all left row indicators data",
         )?;
-        all_left_row_indicators.resize(90, 0);
+        all_left_row_indicators.resize(MAX_ROWS, 0);
 
         // Circuits expect codewords left-padded to W=2700: actual codewords at the end,
         // leading zeros as padding. This lets the SLD (always non-zero, always first real
         // codeword) serve as a natural divider between padding and real data in the circuits.
         // With left-padding the polynomial evaluation in error_correction.zok reduces to
         // the standard descending evaluation that rxing computes.
-        const ZOK_W: usize = 2700;
         let raw_codewords = Option::ok_or(witness_data.codewords.clone(), "no codewords data")?;
-        let n = raw_codewords.len().min(ZOK_W);
-        let mut codewords = vec![0u32; ZOK_W];
-        codewords[ZOK_W - n..].copy_from_slice(&raw_codewords[..n]);
+        let n = raw_codewords.len().min(MAX_DATA_CODEWORDS);
+        let mut codewords = vec![0u32; MAX_DATA_CODEWORDS];
+        codewords[MAX_DATA_CODEWORDS - n..].copy_from_slice(&raw_codewords[..n]);
 
         let raw_corrected = Option::ok_or(
             witness_data.corrected_codewords.clone(),
             "no corrected codewords data",
         )?;
-        let nc = raw_corrected.len().min(ZOK_W);
-        let mut corrected_codewords = vec![0u32; ZOK_W];
-        corrected_codewords[ZOK_W - nc..].copy_from_slice(&raw_corrected[..nc]);
+        let nc = raw_corrected.len().min(MAX_DATA_CODEWORDS);
+        let mut corrected_codewords = vec![0u32; MAX_DATA_CODEWORDS];
+        corrected_codewords[MAX_DATA_CODEWORDS - nc..].copy_from_slice(&raw_corrected[..nc]);
 
         let polynomial_results = Option::ok_or(
             witness_data.polynomial_results.clone(),
@@ -369,7 +369,7 @@ impl FinalizedWitnessData<Fr> {
         add_dummy_table_states(&mut char_table_states, &stats);
 
         let mut chars = Option::ok_or(witness_data.chars.clone(), "no chars data")?;
-        chars.resize(5400, 0);
+        chars.resize(MAX_CHARS, 0);
 
         Ok(Self::new(
             config,
@@ -442,7 +442,7 @@ mod tests {
                 num_ec_codewords: 2,
             },
         );
-        assert_eq!(states.len(), 5400);
+        assert_eq!(states.len(), MAX_CHARS);
     }
 
     #[test]
@@ -468,7 +468,7 @@ mod tests {
                 num_ec_codewords: 4,
             },
         );
-        assert_eq!(states.len(), 5400);
+        assert_eq!(states.len(), MAX_CHARS);
     }
 
     #[test]
@@ -523,7 +523,7 @@ mod tests {
                 num_ec_codewords: 2,
             },
         );
-        assert_eq!(states.len(), 5400);
+        assert_eq!(states.len(), MAX_CHARS);
 
         // The last 4 entries should be EC (char=6)
         for entry in states.iter().rev().take(4) {

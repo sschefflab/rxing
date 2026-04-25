@@ -18,6 +18,7 @@ use crate::{
     Exceptions, PolynomialResult, WitnessData,
     common::Result,
     pdf417::{decoder::ec::ModulusGF, pdf_417_common::NUMBER_OF_CODEWORDS},
+    witness_data::constants::MAX_EC_CODEWORDS,
 };
 
 use super::ModulusPoly;
@@ -58,7 +59,7 @@ pub fn decode(
     let mut polynomial_results = Vec::new();
     // compute polynomials for the max EC level to get the witness data,
     // but ignore it if its not applicable to this EC level.
-    for i in (1..=512).rev() {
+    for i in (1..=MAX_EC_CODEWORDS as u32).rev() {
         let eval_result = poly.evaluateAt(field.exp(i));
         let eval = eval_result.in_field;
         assert!(eval_result.over_integers % 929 == eval);
