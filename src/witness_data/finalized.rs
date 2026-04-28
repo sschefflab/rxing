@@ -101,7 +101,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     // The row number from the original image that row i in well_behaved came from
     pub wb_inds: Vec<u32>,
     // How many times index i appears in wb_inds. Should be the same length as wb_inds.
-    pub wb_ind_counts: Vec<u32>,
+    pub ind_counts: Vec<u32>,
 
     // data that should be in the lookup table we use in the proof for the well-behaved image
     pub wb_lookups: Vec<Vec<BlockLookup>>,
@@ -240,10 +240,26 @@ impl FinalizedWitnessData<Fr> {
                 row.len()
             );
         }
-        let wb_ind_counts: Vec<u32> = wb_inds
-            .iter()
-            .map(|target| wb_inds.iter().filter(|&&x| x == *target).count() as u32)
-            .collect();
+        // ind_counts[i] = number of times source row i appears across wb_inds + garbage_inds.
+        // The circuit Haboeck LHS needs WB+garbage counts so that
+        // sum(ind_counts) + num_zero_rows == R + G_R (total RHS terms).
+        let num_rows = wb_inds.len();
+        let mut count_map = vec![0u32; num_rows];
+        for &src in &wb_inds {
+            let idx = src as usize;
+            if idx < num_rows {
+                count_map[idx] += 1;
+            }
+        }
+        for &src in &garbage_inds {
+            if src >= 0 {
+                let idx = src as usize;
+                if idx < num_rows {
+                    count_map[idx] += 1;
+                }
+            }
+        }
+        let ind_counts: Vec<u32> = count_map;
         let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
         let (wb_lookups, wb_baseB_decomps) = compute_lookups_and_decomps::<WB_MAX_DECOMPS>(
             &well_behaved,
@@ -287,7 +303,7 @@ impl FinalizedWitnessData<Fr> {
             bin_image,
             well_behaved,
             wb_inds,
-            wb_ind_counts,
+            ind_counts,
             wb_lookups,
             wb_baseB_decomps,
             garbage_image,

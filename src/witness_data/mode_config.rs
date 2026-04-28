@@ -64,7 +64,7 @@ impl ImageMode {
                 chunk_size: 8,
                 wb_nb: 273,
                 wb_b: 25,
-                wb_num_decomps: 10,
+                wb_num_decomps: 8,
                 g_nb: 192,
                 g_b: 193,
             },
