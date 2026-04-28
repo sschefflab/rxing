@@ -8,13 +8,13 @@ use ark_ff::{FftField, PrimeField, Zero};
 use serde::Serialize;
 
 use super::accumulator::WitnessData;
-use super::constants::{MAX_CHARS, MAX_DATA_CODEWORDS, MAX_ROWS};
 use super::block_ops::{
     compute_blocks, compute_ext_codewords, compute_garbage_word_witnesses,
     compute_lookups_and_decomps, compute_normalized_blocks, compute_words,
     compute_words_with_dummies,
 };
-use super::mode_config::{G_NUM_DECOMPS, ModeConfig, WB_MAX_DECOMPS};
+use super::constants::{MAX_CHARS, MAX_DATA_CODEWORDS, MAX_ROWS};
+use super::mode_config::{G_MAX_DECOMPS, ModeConfig, WB_MAX_DECOMPS};
 use super::types::{
     BarcodeStats, BlockLookup, EC_TABLE_STATE, PAD_TABLE_STATE, PolynomialResult, RowIndicatorVars,
     SLD_TABLE_STATE, TableState, ZERO_TABLE_STATE,
@@ -129,7 +129,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
         feature = "serde",
         serde(serialize_with = "serialize_u16_array_vec_2d")
     )]
-    pub g_baseB_decomps: Vec<Vec<[u16; G_NUM_DECOMPS]>>,
+    pub g_baseB_decomps: Vec<Vec<[u16; G_MAX_DECOMPS]>>,
 
     pub wb_blocks: Vec<Vec<u32>>,
     pub wb_normalized_blocks: Vec<Vec<[u32; 8]>>,
@@ -245,10 +245,16 @@ impl FinalizedWitnessData<Fr> {
             .map(|target| wb_inds.iter().filter(|&&x| x == *target).count() as u32)
             .collect();
         let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
-        let (wb_lookups, wb_baseB_decomps) =
-            compute_lookups_and_decomps::<WB_MAX_DECOMPS>(&well_behaved, config.wb_b);
-        let (g_lookups, g_baseB_decomps) =
-            compute_lookups_and_decomps::<G_NUM_DECOMPS>(&garbage_image, config.g_b);
+        let (wb_lookups, wb_baseB_decomps) = compute_lookups_and_decomps::<WB_MAX_DECOMPS>(
+            &well_behaved,
+            config.wb_b,
+            config.chunk_size,
+        );
+        let (g_lookups, g_baseB_decomps) = compute_lookups_and_decomps::<G_MAX_DECOMPS>(
+            &garbage_image,
+            config.g_b,
+            config.chunk_size,
+        );
 
         let wb_blocks = compute_blocks(&well_behaved, config.wb_nb);
         let wb_normalized_blocks = compute_normalized_blocks(&wb_blocks);

@@ -6,11 +6,12 @@
  */
 
 /// Fixed upper bound for the well-behaved decomp array size (max across all modes).
-/// HD uses 3 slots; SD uses 5; Small uses all 10. Unused slots are zero-padded.
-pub const WB_MAX_DECOMPS: usize = 10;
+/// HD uses 3 slots; SD uses 5; Small uses 8. Unused slots are zero-padded.
+pub const WB_MAX_DECOMPS: usize = 8;
 
-/// Fixed decomp array size for the garbage image (same across all modes).
-pub const G_NUM_DECOMPS: usize = 10;
+/// Fixed upper bound for the garbage decomp array size (max across all modes).
+/// HD and SD use 10; Small uses 8.
+pub const G_MAX_DECOMPS: usize = 10;
 
 /// Image resolution mode. Controls witness generation constants.
 #[derive(Debug, Clone, Copy, Default)]
@@ -26,6 +27,8 @@ pub enum ImageMode {
 
 /// Per-mode constants used during witness generation.
 pub struct ModeConfig {
+    /// Size of block measurement chunks in pixels (L).
+    pub chunk_size: usize,
     /// Number of well-behaved blocks per row (NB).
     pub wb_nb: usize,
     /// Base B for well-behaved chunk encoding.
@@ -42,6 +45,7 @@ impl ImageMode {
     pub fn config(self) -> ModeConfig {
         match self {
             ImageMode::Hd => ModeConfig {
+                chunk_size: 10,
                 wb_nb: 273,
                 wb_b: 105,
                 wb_num_decomps: 3,
@@ -49,6 +53,7 @@ impl ImageMode {
                 g_b: 1081,
             },
             ImageMode::Sd => ModeConfig {
+                chunk_size: 10,
                 wb_nb: 273,
                 wb_b: 65,
                 wb_num_decomps: 5,
@@ -56,6 +61,7 @@ impl ImageMode {
                 g_b: 641,
             },
             ImageMode::Small => ModeConfig {
+                chunk_size: 8,
                 wb_nb: 273,
                 wb_b: 25,
                 wb_num_decomps: 10,

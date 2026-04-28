@@ -6,10 +6,7 @@
  */
 
 use crate::common::BitMatrix;
-use crate::witness_data::constants::CHUNK_SIZE;
 use crate::witness_data::types::BlockLookup;
-
-const L: usize = CHUNK_SIZE;
 
 /// For each row in `image`, splits it into chunks of 10 pixels and computes:
 /// - `int_val`: the chunk as a binary integer (bit i = pixel i)
@@ -21,6 +18,7 @@ const L: usize = CHUNK_SIZE;
 fn compute_lookups_and_raw_decomps<const N: usize>(
     image: &BitMatrix,
     B: usize,
+    L: usize,
 ) -> (Vec<Vec<BlockLookup>>, Vec<Vec<[u16; N]>>) {
     let width = image.width() as usize;
     let height = image.height() as usize;
@@ -34,14 +32,13 @@ fn compute_lookups_and_raw_decomps<const N: usize>(
         for chunk in 0..num_chunks {
             let mut decomp: [u16; N] = [0; N];
             let start_col = chunk * L;
-            let chunk_len = L.min(width - start_col);
 
             // Take chunk_len pixels and compute int as a binary string (big endian)
             let mut int_val: u16 = 0;
-            let mut pixels = [false; L];
-            for i in 0..chunk_len {
+            let mut pixels: Vec<bool> = Vec::with_capacity(L);
+            for i in 0..L {
                 let px = image.get((start_col + i) as u32, row as u32);
-                pixels[i] = px;
+                pixels.push(px);
                 if px {
                     int_val |= 1 << i;
                 }
@@ -50,7 +47,7 @@ fn compute_lookups_and_raw_decomps<const N: usize>(
             // Compute blocks: lengths of runs of the same color
             let mut blocks_vec: Vec<u16> = Vec::new();
             let mut current_run: u16 = 1;
-            for i in 1..chunk_len {
+            for i in 1..L {
                 if pixels[i] == pixels[i - 1] {
                     current_run += 1;
                 } else {
@@ -173,8 +170,9 @@ fn accumulate_decomps<const N: usize>(
 pub fn compute_lookups_and_decomps<const N: usize>(
     image: &BitMatrix,
     B: usize,
+    L: usize,
 ) -> (Vec<Vec<BlockLookup>>, Vec<Vec<[u16; N]>>) {
-    let (mut lookups, raw_decomps) = compute_lookups_and_raw_decomps::<N>(image, B);
+    let (mut lookups, raw_decomps) = compute_lookups_and_raw_decomps::<N>(image, B, L);
     let finalized_decomps = accumulate_decomps::<N>(&mut lookups, raw_decomps, B);
     (lookups, finalized_decomps)
 }
@@ -438,7 +436,7 @@ mod tests {
     fn test_compute_lookups_all_white() {
         // Single row, 5 white pixels → one block of length 5
         let image = make_bitmatrix(&[&[false, false, false, false, false]]);
-        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104);
+        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104, 5);
 
         assert_eq!(lookups.len(), 1);
         assert_eq!(decomps.len(), 1);
@@ -456,7 +454,7 @@ mod tests {
     fn test_compute_lookups_all_black() {
         // Single row, 5 black pixels → one block of length 5
         let image = make_bitmatrix(&[&[true, true, true, true, true]]);
-        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104);
+        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104, 5);
 
         assert_eq!(lookups.len(), 1);
         let l = &lookups[0][0];
@@ -476,7 +474,7 @@ mod tests {
             true, true, true, false, false, false, false, false, false, false,
         ];
         let image = make_bitmatrix(&[row]);
-        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104);
+        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104, 10);
 
         assert_eq!(lookups.len(), 1);
         let l = &lookups[0][0];
@@ -499,7 +497,7 @@ mod tests {
             false, true, true, false, false, false, false, true, true, true,
         ];
         let image = make_bitmatrix(&[row]);
-        let (lookups, decomps) = compute_lookups_and_decomps::<4>(&image, 1080);
+        let (lookups, decomps) = compute_lookups_and_decomps::<4>(&image, 1080, 10);
 
         let l = &lookups[0][0];
         assert_eq!(l.num_blocks, 3);
@@ -528,7 +526,7 @@ mod tests {
             row[i] = true;
         }
         let image = make_bitmatrix(&[row.as_slice()]);
-        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104);
+        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104, 10);
 
         assert_eq!(lookups.len(), 1); // 1 row
         assert_eq!(lookups[0].len(), 2); // 2 chunks
@@ -564,7 +562,7 @@ mod tests {
             &[true, true, true, true, true],
             &[false, false, false, false, false],
         ]);
-        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104);
+        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104, 5);
 
         assert_eq!(lookups.len(), 2); // 2 rows
         assert_eq!(lookups[0].len(), 1); // 1 chunk per row
@@ -586,7 +584,7 @@ mod tests {
             false, false, false,
         ];
         let image = make_bitmatrix(&[row]);
-        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104);
+        let (lookups, decomps) = compute_lookups_and_decomps::<2>(&image, 104, 10);
         assert_eq!(lookups.len(), 1); // 1 row
         assert_eq!(lookups[0].len(), 3); // 3 chunks in row
         assert_eq!(decomps.len(), 1);
@@ -605,7 +603,7 @@ mod tests {
             false, false, false, false, false,
         ];
         let image = make_bitmatrix(&[row]);
-        let (lookups, decomps) = compute_lookups_and_decomps::<3>(&image, 104);
+        let (lookups, decomps) = compute_lookups_and_decomps::<3>(&image, 104, 10);
         assert_eq!(lookups.len(), 1); // 1 row
         assert_eq!(lookups[0].len(), 3); // 5 chunks in row
         assert_eq!(decomps.len(), 1);
@@ -635,7 +633,7 @@ mod tests {
             true, true, true, false, false, true, true, true, true, true, // chunk 1
         ];
         let image = make_bitmatrix(&[row]);
-        let (lookups, decomps) = compute_lookups_and_decomps::<4>(&image, 104);
+        let (lookups, decomps) = compute_lookups_and_decomps::<4>(&image, 104, 10);
 
         assert_eq!(lookups[0].len(), 2);
 

@@ -25,5 +25,5 @@ pub(crate) mod serde_support;
 
 pub use accumulator::WitnessData;
 pub use finalized::FinalizedWitnessData;
-pub use mode_config::{ImageMode, ModeConfig, WB_MAX_DECOMPS, G_NUM_DECOMPS};
+pub use mode_config::{G_MAX_DECOMPS, ImageMode, ModeConfig, WB_MAX_DECOMPS};
 pub use types::{PolynomialResult, RowIndicatorVars, TableState};

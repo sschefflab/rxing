@@ -1,6 +1,3 @@
-/// Chunk size for block measurement - must be a factor of the image width. Aka L.
-pub const CHUNK_SIZE: usize = 10;
-
 /// Maximum number of rows in a PDF417 barcode (spec limit).
 pub const MAX_ROWS: usize = 90;
 
