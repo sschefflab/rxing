@@ -1,8 +1,11 @@
+/// Chunk size for block measurement - must be a factor of the image width. Aka L.
+pub const CHUNK_SIZE: usize = 10;
+
 /// Maximum number of rows in a PDF417 barcode (spec limit).
 pub const MAX_ROWS: usize = 90;
 
-/// Number of garbage rows = all rows except the bounding box rows.
-/// Always MAX_ROWS - 1 since the bounding box contains at least one row.
+/// Number of garbage rows
+/// Always MAX_ROWS - 1 since the garbage is found in between well-behaved rows
 pub const GARBAGE_ROWS: usize = MAX_ROWS - 1;
 
 /// Maximum number of data columns in a PDF417 barcode (spec limit).

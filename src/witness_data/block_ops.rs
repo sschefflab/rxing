@@ -6,9 +6,10 @@
  */
 
 use crate::common::BitMatrix;
+use crate::witness_data::constants::CHUNK_SIZE;
 use crate::witness_data::types::BlockLookup;
 
-const L: usize = 10;
+const L: usize = CHUNK_SIZE;
 
 /// For each row in `image`, splits it into chunks of 10 pixels and computes:
 /// - `int_val`: the chunk as a binary integer (bit i = pixel i)
@@ -344,9 +345,7 @@ pub fn compute_words_with_dummies(
 /// Returns `(garbage_words, garbage_word_index)`, each with one entry per row, where
 /// `garbage_words[r]` is the invalid bar-space pattern and `garbage_word_index[r]` is its
 /// 0-based column position.
-pub fn compute_garbage_word_witnesses(
-    normalized_blocks: &[Vec<[u32; 8]>],
-) -> (Vec<u64>, Vec<u64>) {
+pub fn compute_garbage_word_witnesses(normalized_blocks: &[Vec<[u32; 8]>]) -> (Vec<u64>, Vec<u64>) {
     normalized_blocks
         .iter()
         .map(|row| {
@@ -354,9 +353,7 @@ pub fn compute_garbage_word_witnesses(
                 .enumerate()
                 .find(|(_, block)| {
                     let word = get_word(block);
-                    word != START_WORD as u64
-                        && word != STOP_WORD as u64
-                        && !decodes_exactly(block)
+                    word != START_WORD as u64 && word != STOP_WORD as u64 && !decodes_exactly(block)
                 })
                 .map(|(idx, block)| (get_word(block), idx as u64))
                 .expect("garbage row has no invalid word — every block decoded as a valid codeword")
@@ -850,10 +847,7 @@ mod tests {
     fn test_garbage_witness_multiple_rows_independent() {
         // Row 0: START then zero → skips START, picks zero at column 1.
         // Row 1: three zero blocks → picks zero at column 0.
-        let rows = vec![
-            vec![START_BLOCKS, [0u32; 8]],
-            vec![[0u32; 8]; 3],
-        ];
+        let rows = vec![vec![START_BLOCKS, [0u32; 8]], vec![[0u32; 8]; 3]];
         let (words, indices) = compute_garbage_word_witnesses(&rows);
         assert_eq!(words, vec![0u64, 0u64]);
         assert_eq!(indices, vec![1u64, 0u64]);
