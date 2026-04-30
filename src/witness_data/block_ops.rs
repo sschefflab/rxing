@@ -354,57 +354,32 @@ pub fn compute_garbage_word_witnesses(normalized_blocks: &[Vec<[u32; 8]>]) -> (V
                     word != START_WORD as u64 && word != STOP_WORD as u64 && !decodes_exactly(block)
                 })
                 .map(|(idx, block)| (get_word(block), idx as u64))
-                .expect("garbage row has no invalid word — every block decoded as a valid codeword")
+                .unwrap_or_else(|| {
+                    panic!("garbage row has no invalid word — row blocks: {:?}", row)
+                })
         })
         .unzip()
 }
 
-/// Normalizes an 8-element block window using edge-to-similar-edge pairs
-/// (ISO 15438 Annex J.3). Computes 6 overlapping paired measurements
-/// (e[i] = b[i]+b[i+1]), normalizes each pair, then reconstructs 8
-/// individual values. This cancels edge-position noise where a bar/space
-/// boundary lands slightly off: the bar appears narrower and the adjacent
-/// space wider by the same amount, but their sum is unaffected.
-/// Returns all zeros for a zero window (sum == 0).
-fn proportional_normalize(window: &[u32]) -> [u32; 8] {
-    let sum: u64 = window.iter().map(|&x| x as u64).sum();
-    if sum == 0 {
-        return [0u32; 8];
-    }
-
-    // Normalize the 6 overlapping pairs
-    let mut pairs = [0u32; 6];
-    for i in 0..6 {
-        let e = (window[i] + window[i + 1]) as u64;
-        pairs[i] = ((e * 17 + sum / 2) / sum) as u32;
-    }
-
-    // Reconstruct individual values. Use n[0] as anchor (normalized directly),
-    // then derive n[1..6] from consecutive pair differences, and n[7] from total=17.
-    let mut result = [0u32; 8];
-    result[0] = ((window[0] as u64 * 17 + sum / 2) / sum) as u32;
-    for i in 0..6 {
-        result[i + 1] = pairs[i].saturating_sub(result[i]);
-    }
-    let used: u32 = result[..7].iter().sum();
-    result[7] = 17u32.saturating_sub(used);
-
-    result
-}
-
 /// For each row of blocks, splits into non-overlapping windows of 8 and
-/// proportionally normalizes each window.
+/// normalizes each window using sampleBitCounts. Windows containing any
+/// zero element are replaced with an all-zero block (a zero-width bar or space
+/// is invalid input to sampleBitCounts; the all-zero block is itself an invalid
+/// codeword and serves as its own garbage witness).
 pub fn compute_normalized_blocks(blocks: &[Vec<u32>]) -> Vec<Vec<[u32; 8]>> {
+    use crate::pdf417::decoder::pdf_417_codeword_decoder::sampleBitCounts;
     blocks
         .iter()
         .map(|row| {
-            let num_chunks = (row.len() + 7) / 8;
-            let mut result: Vec<[u32; 8]> = row
-                .chunks_exact(8)
-                .map(|window| proportional_normalize(window))
-                .collect();
-            result.resize(num_chunks, [0u32; 8]);
-            result
+            row.chunks_exact(8)
+                .map(|window| {
+                    if window.iter().any(|&x| x == 0) {
+                        [0u32; 8]
+                    } else {
+                        sampleBitCounts(window)
+                    }
+                })
+                .collect()
         })
         .collect()
 }

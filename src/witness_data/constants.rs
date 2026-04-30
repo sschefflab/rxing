@@ -19,3 +19,6 @@ pub const MAX_EC_LEVEL: usize = 8;
 
 /// Maximum number of EC codewords = 2^(MAX_EC_LEVEL + 1).
 pub const MAX_EC_CODEWORDS: usize = 1 << (MAX_EC_LEVEL + 1);
+
+/// Number of normalized block columns per well-behaved row.
+pub const WB_CW: usize = 35;

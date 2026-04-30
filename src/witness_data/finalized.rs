@@ -13,7 +13,7 @@ use super::block_ops::{
     compute_lookups_and_decomps, compute_normalized_blocks, compute_words,
     compute_words_with_dummies,
 };
-use super::constants::{MAX_CHARS, MAX_DATA_CODEWORDS, MAX_ROWS};
+use super::constants::{MAX_CHARS, MAX_DATA_CODEWORDS, MAX_ROWS, WB_CW};
 use super::mode_config::{G_MAX_DECOMPS, ModeConfig, WB_MAX_DECOMPS};
 use super::types::{
     BarcodeStats, BlockLookup, EC_TABLE_STATE, PAD_TABLE_STATE, PolynomialResult, RowIndicatorVars,
@@ -150,7 +150,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
 
     #[allow(dead_code)]
     #[cfg_attr(feature = "serde", serde(skip))]
-    garbage_rows: Vec<Vec<u64>>, // Full 2D word grid for the garbage image; used by the circuit via compute_words. Only used for testing.
+    garbage_rows: Vec<Vec<u64>>, // Full 2D word grid for the garbage image; used by the circuit via compute_words. Only exported here for testing.
 
     /// For each garbage row, the bar-space pattern of the first column that failed to decode.
     /// Proves that row r has at least one invalid word at position garbage_word_index[r].
@@ -273,9 +273,22 @@ impl FinalizedWitnessData<Fr> {
         );
 
         let wb_blocks = compute_blocks(&well_behaved, config.wb_nb);
-        let wb_normalized_blocks = compute_normalized_blocks(&wb_blocks);
+        let wb_normalized_blocks: Vec<Vec<[u32; 8]>> = compute_normalized_blocks(&wb_blocks)
+            .into_iter()
+            .map(|mut row| {
+                row.resize(WB_CW, [0u32; 8]);
+                row
+            })
+            .collect();
         let g_blocks = compute_blocks(&garbage_image, config.g_nb);
-        let garbage_normalized_blocks = compute_normalized_blocks(&g_blocks);
+        let g_cw = config.g_nb / 8;
+        let garbage_normalized_blocks: Vec<Vec<[u32; 8]>> = compute_normalized_blocks(&g_blocks)
+            .into_iter()
+            .map(|mut row| {
+                row.resize(g_cw, [0u32; 8]);
+                row
+            })
+            .collect();
 
         let wb_words = compute_words(&wb_normalized_blocks);
 
