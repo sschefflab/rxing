@@ -9,9 +9,9 @@ use serde::Serialize;
 
 use super::accumulator::WitnessData;
 use super::block_ops::{
-    compute_blocks, compute_ext_codewords_from_widths, compute_garbage_word_witnesses_6,
-    compute_lookups_and_decomps, compute_normalized_widths, compute_words_6,
-    compute_words_with_dummies_6,
+    compute_blocks, compute_ext_codewords_from_widths, compute_garbage_word_witnesses,
+    compute_lookups_and_decomps, compute_normalized_widths, compute_words,
+    compute_words_with_dummies,
 };
 use super::constants::{MAX_CHARS, MAX_DATA_CODEWORDS, MAX_ROWS, WB_CW};
 use super::mode_config::{G_MAX_DECOMPS, ModeConfig, WB_MAX_DECOMPS};
@@ -294,8 +294,8 @@ impl FinalizedWitnessData<Fr> {
                 })
                 .collect();
 
-        let wb_words = compute_words_6(&wb_normalized_widths);
-        let (words_with_dummies, wb_garbage) = compute_words_with_dummies_6(&wb_normalized_widths);
+        let wb_words = compute_words(&wb_normalized_widths);
+        let (words_with_dummies, wb_garbage) = compute_words_with_dummies(&wb_normalized_widths);
         let wb_n = wb_normalized_widths.len() * wb_normalized_widths.first().map_or(0, |r| r.len());
         let ext_codewords = compute_ext_codewords_from_widths(&wb_normalized_widths, &words_with_dummies);
         let (mut wb_disjoint_set_poly_f, mut wb_disjoint_set_poly_g) =
@@ -303,9 +303,9 @@ impl FinalizedWitnessData<Fr> {
         wb_disjoint_set_poly_f.resize(VALID_WIDTH_WORDS_LEN, Fr::zero());
         wb_disjoint_set_poly_g.resize(wb_n, Fr::zero());
 
-        let garbage_rows = compute_words_6(&garbage_normalized_widths);
+        let garbage_rows = compute_words(&garbage_normalized_widths);
         let (garbage_words, garbage_word_index) =
-            compute_garbage_word_witnesses_6(&garbage_normalized_widths);
+            compute_garbage_word_witnesses(&garbage_normalized_widths);
         let g_n = garbage_normalized_widths.len();
         let (mut garbage_disjoint_set_poly_f, mut garbage_disjoint_set_poly_g) =
             show_disjoint_from_valid_width_words(garbage_words.clone());
