@@ -137,7 +137,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub wb_normalized_widths: Vec<Vec<[u32; 6]>>,
 
     #[allow(dead_code)]
-    // #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "serde", serde(skip))]
     wb_words: Vec<Vec<u64>>, // only used for testing
 
     // coefficients of polynomials showing that the stuff we throw out from the well-behaved image is disjoint from valid words
