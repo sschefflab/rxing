@@ -115,7 +115,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub wb_baseB_decomps: Vec<Vec<[u16; WB_MAX_DECOMPS]>>,
 
     // The "garbage" rows of the image that will not decode
-    // Will always have exactly 89 rows. Padded with zero rows.
+    // Will always have exactly GARBAGE_ROWS rows. Padded with zero rows.
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_bitmatrix"))]
     pub garbage_image: BitMatrix,
     // The row number from the original image that row i in garbage came from

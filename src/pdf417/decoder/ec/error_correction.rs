@@ -266,8 +266,9 @@ mod tests {
         decode(&mut received, num_ec, &mut erasures, Some(&mut wd)).expect("decode should succeed");
         assert_eq!(
             wd.polynomial_results.as_ref().unwrap().len(),
-            512,
-            "polynomial_results must always have exactly 512 entries"
+            MAX_EC_CODEWORDS,
+            "polynomial_results must always have exactly {} entries",
+            MAX_EC_CODEWORDS
         );
     }
 }
