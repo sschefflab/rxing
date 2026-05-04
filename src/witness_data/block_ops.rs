@@ -53,6 +53,45 @@ pub fn compute_words(normalized_widths: &[Vec<[u32; 6]>]) -> Vec<Vec<u64>> {
         .collect()
 }
 
+/// Reconstructs the pre-EC codeword array from `words_with_dummies` and `ext_codewords`,
+/// matching exactly what the circuit extracts into `cw_and_dummies`.
+///
+/// For each active row (not all-zero in words_with_dummies), collects ext_codeword values
+/// at columns j >= 2 that decoded exactly (ext_cw != DUMMY_CW), excluding the right row
+/// indicator (the column immediately before STOP) and all columns from STOP onward.
+/// Result is left-padded with zeros to `max_codewords`.
+pub fn codewords_from_words_and_ext(
+    words_with_dummies: &[Vec<u64>],
+    ext_codewords: &[Vec<u32>],
+    max_codewords: usize,
+) -> Vec<u32> {
+    let mut result: Vec<u32> = Vec::new();
+    for (row_words, row_ext) in words_with_dummies.iter().zip(ext_codewords.iter()) {
+        if row_words.iter().all(|&w| w == 0) {
+            continue;
+        }
+        let stop_pos = row_words.iter().position(|&w| w == STOP_WORD);
+        for j in 2..row_words.len() {
+            if let Some(sp) = stop_pos {
+                if j >= sp {
+                    break;
+                }
+                if j == sp - 1 {
+                    continue; // right row indicator
+                }
+            }
+            let ext_cw = row_ext[j];
+            if ext_cw != DUMMY_CW {
+                result.push(ext_cw);
+            }
+        }
+    }
+    let n = result.len().min(max_codewords);
+    let mut padded = vec![0u32; max_codewords];
+    padded[max_codewords - n..].copy_from_slice(&result[..n]);
+    padded
+}
+
 /// [u32; 6] variant of compute_words_with_dummies.
 /// Uses base-13 width-word encoding and table-based validity check.
 pub fn compute_words_with_dummies(
