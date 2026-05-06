@@ -21,7 +21,7 @@ pub const NUMBER_OF_CODEWORDS: u32 = 929;
 // Maximum Codewords (Data + Error).
 pub const MAX_CODEWORDS_IN_BARCODE: u32 = NUMBER_OF_CODEWORDS - 1;
 pub const MIN_ROWS_IN_BARCODE: u32 = 3;
-pub const MAX_ROWS_IN_BARCODE: u32 = 90;
+pub const MAX_ROWS_IN_BARCODE: u32 = 90; // PDF417 spec maximum
 // One left row indication column + max 30 data columns + one right row indicator column
 //public static final int MAX_CODEWORDS_IN_ROW = 32;
 pub const MODULES_IN_CODEWORD: u32 = 17;

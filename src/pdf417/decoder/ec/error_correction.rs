@@ -18,7 +18,6 @@ use crate::{
     Exceptions, PolynomialResult, WitnessData,
     common::Result,
     pdf417::{decoder::ec::ModulusGF, pdf_417_common::NUMBER_OF_CODEWORDS},
-    witness_data::constants::MAX_EC_CODEWORDS,
 };
 
 use super::ModulusPoly;
@@ -59,7 +58,8 @@ pub fn decode(
     let mut polynomial_results = Vec::new();
     // compute polynomials for the max EC level to get the witness data,
     // but ignore it if its not applicable to this EC level.
-    for i in (1..=MAX_EC_CODEWORDS as u32).rev() {
+    let max_ec = witness_data.as_deref().map_or(512usize, |wd| wd.image_params.max_ec_codewords());
+    for i in (1..=max_ec as u32).rev() {
         let eval_result = poly.evaluateAt(field.exp(i));
         let eval = eval_result.in_field;
         assert!(eval_result.over_integers % 929 == eval);
@@ -251,7 +251,7 @@ fn findErrorMagnitudes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::witness_data::accumulator::WitnessData;
+    use crate::witness_data::{accumulator::WitnessData, mode_config::ImageMode};
 
     #[test]
     fn test_polynomial_results_length_is_512() {
@@ -262,12 +262,15 @@ mod tests {
         // No errors, so EC codewords are already correct (all zeros = trivial)
         let mut erasures = vec![];
         let image = vec![vec![0u8; 2]; 2];
-        let mut wd = WitnessData::new(2, 2, image);
+        let params = ImageMode::Hd.image_params();
+        let expected_len = params.max_ec_codewords();
+        let mut wd = WitnessData::new(2, 2, image, params);
         decode(&mut received, num_ec, &mut erasures, Some(&mut wd)).expect("decode should succeed");
         assert_eq!(
             wd.polynomial_results.as_ref().unwrap().len(),
-            512,
-            "polynomial_results must always have exactly 512 entries"
+            expected_len,
+            "polynomial_results must always have exactly {} entries",
+            expected_len
         );
     }
 }
