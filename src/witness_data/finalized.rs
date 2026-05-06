@@ -13,8 +13,7 @@ use super::block_ops::{
     compute_lookups_and_decomps, compute_normalized_widths, compute_words,
     compute_words_with_dummies,
 };
-use super::constants::{MAX_CHARS, MAX_DATA_CODEWORDS, MAX_ROWS, WB_CW};
-use super::mode_config::{G_MAX_DECOMPS, ModeConfig, WB_MAX_DECOMPS};
+use super::mode_config::{G_MAX_DECOMPS, ImageParams, WB_MAX_DECOMPS};
 use super::types::{
     BarcodeStats, BlockLookup, EC_TABLE_STATE, PAD_TABLE_STATE, PolynomialResult, RowIndicatorVars,
     SLD_TABLE_STATE, TableState, ZERO_TABLE_STATE,
@@ -42,7 +41,7 @@ use super::serde_support::{serialize_bitmatrix, serialize_fr_vec, serialize_u16_
 ///      where pad_count = row_count × column_count − 1 (SLD) − ec_count − text_codewords
 ///   5. 2^(ec_level + 1) EC codewords → 2 `EC_TABLE_STATE` entries each
 /// Total is padded to exactly `MAX_CHARS`.
-fn add_dummy_table_states(char_table_states: &mut Vec<TableState>, stats: &BarcodeStats) {
+fn add_dummy_table_states(char_table_states: &mut Vec<TableState>, stats: &BarcodeStats, max_chars: usize) {
     let text_codeword_count = char_table_states.len() as u32 / 2;
 
     // SLD precedes text in the codeword array, so prepend its states before the text states.
@@ -65,10 +64,10 @@ fn add_dummy_table_states(char_table_states: &mut Vec<TableState>, stats: &Barco
         char_table_states.push(EC_TABLE_STATE);
     }
 
-    // Prepend zero states to reach exactly MAX_CHARS total states.
+    // Prepend zero states to reach exactly max_chars total states.
     let current_count = char_table_states.len();
-    if current_count < MAX_CHARS {
-        let zero_count = MAX_CHARS - current_count;
+    if current_count < max_chars {
+        let zero_count = max_chars - current_count;
         let mut result: Vec<TableState> = (0..zero_count).map(|_| ZERO_TABLE_STATE).collect();
         result.append(char_table_states);
         *char_table_states = result;
@@ -207,7 +206,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
 
 impl FinalizedWitnessData<Fr> {
     pub fn new(
-        config: &ModeConfig,
+        params: &ImageParams,
         width: usize,
         height: usize,
         image: Vec<Vec<u8>>,
@@ -265,26 +264,26 @@ impl FinalizedWitnessData<Fr> {
         let num_zero_rows = garbage_inds.iter().filter(|&&x| x == -1).count() as u32;
         let (wb_lookups, wb_baseB_decomps) = compute_lookups_and_decomps::<WB_MAX_DECOMPS>(
             &well_behaved,
-            config.wb_b,
-            config.chunk_size,
+            params.wb_b(),
+            params.chunk_size,
         );
         let (g_lookups, g_baseB_decomps) = compute_lookups_and_decomps::<G_MAX_DECOMPS>(
             &garbage_image,
-            config.g_b,
-            config.chunk_size,
+            params.garbage_b(),
+            params.chunk_size,
         );
 
-        let wb_blocks = compute_blocks(&well_behaved, config.wb_nb);
+        let wb_blocks = compute_blocks(&well_behaved, params.wb_nb());
         let wb_normalized_widths: Vec<Vec<[u32; 6]>> = compute_normalized_widths(&wb_blocks)
             .into_iter()
             .map(|mut row| {
-                row.resize(WB_CW, [0u32; 6]);
+                row.resize(params.wb_col_words(), [0u32; 6]);
                 row
             })
             .collect();
 
-        let g_blocks = compute_blocks(&garbage_image, config.g_nb);
-        let g_cw = config.g_nb / 8;
+        let g_blocks = compute_blocks(&garbage_image, params.garbage_nb());
+        let g_cw = params.garbage_col_words();
         let garbage_normalized_widths: Vec<Vec<[u32; 6]>> =
             compute_normalized_widths(&g_blocks)
                 .into_iter()
@@ -354,8 +353,8 @@ impl FinalizedWitnessData<Fr> {
 
     pub fn from_witness_data(
         witness_data: &WitnessData,
-        config: &ModeConfig,
     ) -> Result<Self, String> {
+        let params = &witness_data.image_params;
         let bin_image = Option::ok_or(witness_data.bin_image.clone(), "no binarized image data")?;
 
         let well_behaved = Option::ok_or(witness_data.wb_image.clone(), "no wb_image data")?;
@@ -374,25 +373,26 @@ impl FinalizedWitnessData<Fr> {
             witness_data.all_left_row_indicators.clone(),
             "no all left row indicators data",
         )?;
-        all_left_row_indicators.resize(MAX_ROWS, 0);
+        all_left_row_indicators.resize(params.max_rows, 0);
 
-        // Circuits expect codewords left-padded to W=2700: actual codewords at the end,
-        // leading zeros as padding. This lets the SLD (always non-zero, always first real
-        // codeword) serve as a natural divider between padding and real data in the circuits.
+        // Circuits expect codewords left-padded to W=max_data_codewords: actual codewords at
+        // the end, leading zeros as padding. This lets the SLD (always non-zero, always first
+        // real codeword) serve as a natural divider between padding and real data in the circuits.
         // With left-padding the polynomial evaluation in error_correction.zok reduces to
         // the standard descending evaluation that rxing computes.
+        let max_data_codewords = params.max_data_codewords();
         let raw_codewords = Option::ok_or(witness_data.codewords.clone(), "no codewords data")?;
-        let n = raw_codewords.len().min(MAX_DATA_CODEWORDS);
-        let mut codewords = vec![0u32; MAX_DATA_CODEWORDS];
-        codewords[MAX_DATA_CODEWORDS - n..].copy_from_slice(&raw_codewords[..n]);
+        let n = raw_codewords.len().min(max_data_codewords);
+        let mut codewords = vec![0u32; max_data_codewords];
+        codewords[max_data_codewords - n..].copy_from_slice(&raw_codewords[..n]);
 
         let raw_corrected = Option::ok_or(
             witness_data.corrected_codewords.clone(),
             "no corrected codewords data",
         )?;
-        let nc = raw_corrected.len().min(MAX_DATA_CODEWORDS);
-        let mut corrected_codewords = vec![0u32; MAX_DATA_CODEWORDS];
-        corrected_codewords[MAX_DATA_CODEWORDS - nc..].copy_from_slice(&raw_corrected[..nc]);
+        let nc = raw_corrected.len().min(max_data_codewords);
+        let mut corrected_codewords = vec![0u32; max_data_codewords];
+        corrected_codewords[max_data_codewords - nc..].copy_from_slice(&raw_corrected[..nc]);
 
         let polynomial_results = Option::ok_or(
             witness_data.polynomial_results.clone(),
@@ -404,13 +404,13 @@ impl FinalizedWitnessData<Fr> {
             "no char table states data",
         )?;
 
-        add_dummy_table_states(&mut char_table_states, &stats);
+        add_dummy_table_states(&mut char_table_states, &stats, params.max_chars());
 
         let mut chars = Option::ok_or(witness_data.chars.clone(), "no chars data")?;
-        chars.resize(MAX_CHARS, 0);
+        chars.resize(params.max_chars(), 0);
 
         Ok(Self::new(
-            config,
+            params,
             witness_data.width,
             witness_data.height,
             witness_data.image.clone(),
@@ -465,6 +465,8 @@ mod tests {
     // add_dummy_table_states
     // -------------------------------------------------------------------------
 
+    const MAX_CHARS_HD: usize = 5400; // 2 * 90 * 30
+
     #[test]
     fn test_add_dummy_table_states_total_length() {
         let mut states: Vec<TableState> = Vec::new();
@@ -479,8 +481,9 @@ mod tests {
                 ec_level: 0,
                 num_ec_codewords: 2,
             },
+            MAX_CHARS_HD,
         );
-        assert_eq!(states.len(), MAX_CHARS);
+        assert_eq!(states.len(), MAX_CHARS_HD);
     }
 
     #[test]
@@ -505,8 +508,9 @@ mod tests {
                 ec_level: 1,
                 num_ec_codewords: 4,
             },
+            MAX_CHARS_HD,
         );
-        assert_eq!(states.len(), MAX_CHARS);
+        assert_eq!(states.len(), MAX_CHARS_HD);
     }
 
     #[test]
@@ -522,6 +526,7 @@ mod tests {
                 ec_level: 0,
                 num_ec_codewords: 2,
             },
+            MAX_CHARS_HD,
         );
 
         // Leading entries are zeros (char=0)
@@ -560,8 +565,9 @@ mod tests {
                 ec_level: 0,
                 num_ec_codewords: 2,
             },
+            MAX_CHARS_HD,
         );
-        assert_eq!(states.len(), MAX_CHARS);
+        assert_eq!(states.len(), MAX_CHARS_HD);
 
         // The last 4 entries should be EC (char=6)
         for entry in states.iter().rev().take(4) {

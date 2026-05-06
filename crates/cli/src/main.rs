@@ -19,14 +19,39 @@ enum CliImageMode {
     Sd,
     /// 192×144 (Small).
     Small,
+    /// Custom size. Requires --image-width, --image-height, --max-rows, --max-cols,
+    /// --max-ec-level, and --chunk-size.
+    Custom,
 }
 
 impl CliImageMode {
-    fn to_rxing_mode(&self) -> rxing::ImageMode {
+    /// Resolve to an rxing ImageParams. Returns an error string if mode is Custom
+    /// but the required args are missing or invalid.
+    fn to_image_params(
+        &self,
+        image_width: Option<usize>,
+        image_height: Option<usize>,
+        max_rows: Option<usize>,
+        max_cols: Option<usize>,
+        max_ec_level: Option<usize>,
+        chunk_size: Option<usize>,
+    ) -> Result<rxing::ImageParams, String> {
         match self {
-            CliImageMode::Hd => rxing::ImageMode::Hd,
-            CliImageMode::Sd => rxing::ImageMode::Sd,
-            CliImageMode::Small => rxing::ImageMode::Small,
+            CliImageMode::Hd => Ok(rxing::ImageMode::Hd.image_params()),
+            CliImageMode::Sd => Ok(rxing::ImageMode::Sd.image_params()),
+            CliImageMode::Small => Ok(rxing::ImageMode::Small.image_params()),
+            CliImageMode::Custom => {
+                let params = rxing::ImageParams {
+                    image_width: image_width.ok_or("--image-width is required for --image-mode custom")?,
+                    image_height: image_height.ok_or("--image-height is required for --image-mode custom")?,
+                    max_rows: max_rows.ok_or("--max-rows is required for --image-mode custom")?,
+                    max_cols: max_cols.ok_or("--max-cols is required for --image-mode custom")?,
+                    max_ec_level: max_ec_level.ok_or("--max-ec-level is required for --image-mode custom")?,
+                    chunk_size: chunk_size.ok_or("--chunk-size is required for --image-mode custom")?,
+                };
+                params.validate()?;
+                Ok(params)
+            }
         }
     }
 }
@@ -79,9 +104,34 @@ enum Commands {
         #[arg(long)]
         save_witness: Option<String>,
 
-        /// Image resolution mode for witness generation constants (hd = 1080×720, sd = 640×480)
+        /// Image resolution mode for witness generation constants (hd = 1080×720, sd = 640×480,
+        /// custom = use the six --image-* / --max-* / --chunk-size flags).
         #[arg(long, value_enum, default_value = "hd")]
         image_mode: CliImageMode,
+
+        /// (custom mode) Image width in pixels.
+        #[arg(long)]
+        image_width: Option<usize>,
+
+        /// (custom mode) Image height in pixels.
+        #[arg(long)]
+        image_height: Option<usize>,
+
+        /// (custom mode) Maximum number of logical barcode rows (spec limit, ≤ 90).
+        #[arg(long)]
+        max_rows: Option<usize>,
+
+        /// (custom mode) Maximum number of data columns (spec limit, ≤ 30).
+        #[arg(long)]
+        max_cols: Option<usize>,
+
+        /// (custom mode) Maximum error correction level (0–8).
+        #[arg(long)]
+        max_ec_level: Option<usize>,
+
+        /// (custom mode) Block chunk size in pixels (L). Must divide image_width evenly.
+        #[arg(long)]
+        chunk_size: Option<usize>,
 
         /// Unspecified, application-specific hint.
         #[arg(long)]
@@ -264,6 +314,36 @@ enum Commands {
         #[arg(long)]
         code_128_compact: Option<bool>,
     },
+    /// Generate a params.zok file from the six high-level image parameters.
+    /// The output file can be compiled directly with ./generate-r1cs.sh <output_path>.
+    GenerateParams {
+        /// Output path for the generated params.zok file.
+        output: String,
+
+        /// Image width in pixels.
+        #[arg(long, default_value_t = 1080)]
+        image_width: usize,
+
+        /// Image height in pixels.
+        #[arg(long, default_value_t = 720)]
+        image_height: usize,
+
+        /// Maximum number of logical barcode rows (spec limit, ≤ 90).
+        #[arg(long, default_value_t = 90)]
+        max_rows: usize,
+
+        /// Maximum number of data columns (spec limit, ≤ 30).
+        #[arg(long, default_value_t = 30)]
+        max_cols: usize,
+
+        /// Maximum error correction level (0–8).
+        #[arg(long, default_value_t = 8)]
+        max_ec_level: usize,
+
+        /// Block chunk size in pixels (L). Must divide image_width evenly.
+        #[arg(long, default_value_t = 10)]
+        chunk_size: usize,
+    },
 }
 
 fn main() -> ExitCode {
@@ -288,6 +368,12 @@ fn main() -> ExitCode {
             raw_bytes,
             save_witness,
             image_mode,
+            image_width,
+            image_height,
+            max_rows,
+            max_cols,
+            max_ec_level,
+            chunk_size,
         } => decode_command(
             &cli.file_name,
             try_harder,
@@ -308,6 +394,12 @@ fn main() -> ExitCode {
             raw_bytes,
             save_witness,
             image_mode,
+            *image_width,
+            *image_height,
+            *max_rows,
+            *max_cols,
+            *max_ec_level,
+            *chunk_size,
         ),
         Commands::Encode {
             barcode_type,
@@ -353,7 +445,54 @@ fn main() -> ExitCode {
             force_c40,
             code_128_compact,
         ),
+        Commands::GenerateParams {
+            output,
+            image_width,
+            image_height,
+            max_rows,
+            max_cols,
+            max_ec_level,
+            chunk_size,
+        } => generate_params_command(output, *image_width, *image_height, *max_rows, *max_cols, *max_ec_level, *chunk_size),
     }
+}
+
+fn generate_params_command(
+    output: &str,
+    image_width: usize,
+    image_height: usize,
+    max_rows: usize,
+    max_cols: usize,
+    max_ec_level: usize,
+    chunk_size: usize,
+) -> ExitCode {
+    use std::io::Write;
+    let params = rxing::ImageParams {
+        image_width,
+        image_height,
+        max_rows,
+        max_cols,
+        max_ec_level,
+        chunk_size,
+    };
+    if let Err(e) = params.validate() {
+        eprintln!("Invalid parameters: {e}");
+        return ExitCode::FAILURE;
+    }
+    let content = params.to_params_zok();
+    let mut file = match std::fs::File::create(output) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Failed to create '{}': {e}", output);
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Err(e) = file.write_all(content.as_bytes()) {
+        eprintln!("Failed to write '{}': {e}", output);
+        return ExitCode::FAILURE;
+    }
+    println!("Written: {}", output);
+    ExitCode::SUCCESS
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -377,7 +516,20 @@ fn decode_command(
     raw_bytes: &bool,
     save_witness: &Option<String>,
     image_mode: &CliImageMode,
+    image_width: Option<usize>,
+    image_height: Option<usize>,
+    max_rows: Option<usize>,
+    max_cols: Option<usize>,
+    max_ec_level: Option<usize>,
+    chunk_size: Option<usize>,
 ) -> ExitCode {
+    let image_params = match image_mode.to_image_params(image_width, image_height, max_rows, max_cols, max_ec_level, chunk_size) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Image mode error: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
     let mut hints: rxing::DecodingHintDictionary = HashMap::new();
     if let Some(other) = other {
         hints.insert(
@@ -518,7 +670,7 @@ fn decode_command(
                 &extension,
                 &mut hints.into(),
                 save_witness.as_ref().unwrap(),
-                &image_mode.to_rxing_mode(),
+                image_params,
                 detailed_result,
                 detailed_results_json,
                 raw_bytes,
@@ -568,7 +720,7 @@ fn decode_with_witness_extraction(
     extension: &str,
     hints: &mut rxing::DecodeHints,
     witness_path: &str,
-    image_mode: &rxing::ImageMode,
+    image_params: rxing::ImageParams,
     detailed_result: &bool,
     detailed_results_json: &bool,
     raw_bytes: &bool,
@@ -629,7 +781,7 @@ fn decode_with_witness_extraction(
 
         let binarizer = FixedThresholdBinarizer::new(source);
         let mut bitmap = BinaryBitmap::new(binarizer);
-        let mut witness_data = WitnessData::new(width, height, luminance_data);
+        let mut witness_data = WitnessData::new(width, height, luminance_data, image_params.clone());
 
         decode_and_extract(&mut bitmap, hints, &mut witness_data)
     } else {
@@ -657,16 +809,15 @@ fn decode_with_witness_extraction(
 
         let binarizer = FixedThresholdBinarizer::new(source);
         let mut bitmap = BinaryBitmap::new(binarizer);
-        let mut witness_data = WitnessData::new(width, height, luminance_data);
+        let mut witness_data = WitnessData::new(width, height, luminance_data, image_params);
 
         decode_and_extract(&mut bitmap, hints, &mut witness_data)
     };
 
-    let mode_config = image_mode.config();
     match decode_result {
         Ok((result, witness)) => {
             // Save witness data to JSON
-            let finalized_witness = match FinalizedWitnessData::from_witness_data(&witness, &mode_config) {
+            let finalized_witness = match FinalizedWitnessData::from_witness_data(&witness) {
                 Ok(fw) => fw,
                 Err(e) => {
                     println!("Error finalizing witness data: {:?}", e);

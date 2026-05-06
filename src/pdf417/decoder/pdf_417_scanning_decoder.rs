@@ -20,7 +20,6 @@ use crate::{
     Exceptions, Point, WitnessData,
     common::{BitMatrix, DecoderRXingResult, Result},
     pdf417::pdf_417_common,
-    witness_data::constants::{GARBAGE_ROWS, MAX_EC_CODEWORDS},
 };
 
 use super::{
@@ -245,8 +244,10 @@ pub fn decode(
             wb_bm.setRow(dest_row as u32, &image.getRow(src_row));
         }
 
-        // garbage_image: exactly 89 rows. Rows outside the bounding box plus non-good
+        // garbage_image: exactly garbage_rows rows. Rows outside the bounding box plus non-good
         // bounding-box rows, remainder padded with zero rows. garbage_inds uses -1 for padded rows.
+        let garbage_rows = witness_data.as_deref()
+            .map_or(89usize, |wd| wd.image_params.garbage_rows());
         let mut outside_inds: Vec<i32> = (0..image_height)
             .filter(|&y| y < min_y || y > max_y)
             .map(|y| y as i32)
@@ -254,17 +255,17 @@ pub fn decode(
         garbage_inds.append(&mut outside_inds);
 
         assert!(
-            garbage_inds.len() <= GARBAGE_ROWS,
+            garbage_inds.len() <= garbage_rows,
             "Too many garbage rows: {} (max {})",
             garbage_inds.len(),
-            GARBAGE_ROWS
+            garbage_rows
         );
-        let mut garbage_bm = BitMatrix::new(image_width, GARBAGE_ROWS as u32).unwrap();
+        let mut garbage_bm = BitMatrix::new(image_width, garbage_rows as u32).unwrap();
         for (dest_row, &src_row) in garbage_inds.iter().enumerate() {
             garbage_bm.setRow(dest_row as u32, &image.getRow(src_row as u32));
         }
-        // Pad garbage_inds with -1s to reach exactly GARBAGE_ROWS
-        garbage_inds.resize(GARBAGE_ROWS, -1);
+        // Pad garbage_inds with -1s to reach exactly garbage_rows
+        garbage_inds.resize(garbage_rows, -1);
 
         if let Some(wd) = witness_data.as_deref_mut() {
             wd.wb_image = Some(wb_bm);
@@ -942,9 +943,11 @@ fn correctErrors(
     numECCodewords: u32,
     witness_data: Option<&mut WitnessData>,
 ) -> Result<usize> {
+    let max_ec = witness_data.as_deref()
+        .map_or(512usize, |wd| wd.image_params.max_ec_codewords()) as u32;
     if !erasures.is_empty() && erasures.len() as u32 > numECCodewords / 2 + MAX_ERRORS
         /*|| numECCodewords < 0*/
-        || numECCodewords > MAX_EC_CODEWORDS as u32
+        || numECCodewords > max_ec
     {
         // Too many errors or EC Codewords is corrupted
         return Err(Exceptions::CHECKSUM);

@@ -387,7 +387,7 @@ fn test_witness_collection_fails_on_missing_first_three_rows() {
     let width = 100;
     let height = 100;
     let image_data = vec![vec![0u8; width]; height];
-    let mut witness = WitnessData::new(width, height, image_data);
+    let mut witness = WitnessData::new(width, height, image_data, crate::witness_data::ImageMode::Hd.image_params());
     
     // FIX: Use Arc for the BitMatrix
     let shared_matrix = Arc::new(BitMatrix::new(100, 100).unwrap());
@@ -427,7 +427,6 @@ fn test_witness_collection_fails_on_missing_first_three_rows() {
 
     // 6. FINALIZATION CHECK
     // This proves the 'security' of your collection: incomplete data cannot be finalized
-    let hd_config = crate::witness_data::ImageMode::Hd.config();
-    let result = witness.finalize(&hd_config);
+    let result = witness.finalize();
     assert!(result.is_err(), "Finalization should fail without first 3 row indicators");
 }

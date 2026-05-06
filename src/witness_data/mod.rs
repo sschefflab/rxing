@@ -14,7 +14,6 @@
 pub mod accumulator;
 pub mod block_ops;
 mod width_tables;
-pub mod constants;
 pub mod disjoint_set_polynomials;
 pub mod finalized;
 pub mod mode_config;
@@ -26,5 +25,5 @@ pub(crate) mod serde_support;
 
 pub use accumulator::WitnessData;
 pub use finalized::FinalizedWitnessData;
-pub use mode_config::{G_MAX_DECOMPS, ImageMode, ModeConfig, WB_MAX_DECOMPS};
+pub use mode_config::{G_MAX_DECOMPS, ImageMode, ImageParams, WB_MAX_DECOMPS};
 pub use types::{PolynomialResult, RowIndicatorVars, TableState};

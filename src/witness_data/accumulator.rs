@@ -3,7 +3,7 @@
  */
 
 use super::finalized::FinalizedWitnessData;
-use super::mode_config::ModeConfig;
+use super::mode_config::ImageParams;
 use super::types::{BarcodeStats, PolynomialResult, RowIndicatorVars, TableState};
 use crate::common::BitMatrix;
 use ark_ed25519::Fr;
@@ -19,6 +19,9 @@ use ark_ed25519::Fr;
  */
 #[derive(Clone, Debug)]
 pub struct WitnessData {
+    /// Image configuration parameters driving all derived constants.
+    pub image_params: ImageParams,
+
     /// The width of the image in pixels
     pub width: usize,
 
@@ -75,7 +78,7 @@ impl WitnessData {
      * # Panics
      * Panics if the image dimensions don't match width and height
      */
-    pub fn new(width: usize, height: usize, image: Vec<Vec<u8>>) -> Self {
+    pub fn new(width: usize, height: usize, image: Vec<Vec<u8>>, image_params: ImageParams) -> Self {
         assert_eq!(
             image.len(),
             height,
@@ -95,6 +98,7 @@ impl WitnessData {
         }
 
         Self {
+            image_params,
             width,
             height,
             image,
@@ -185,8 +189,8 @@ impl WitnessData {
     /**
      * Makes sure that all optional fields have data in them.
      */
-    pub fn finalize(&self, config: &ModeConfig) -> Result<FinalizedWitnessData<Fr>, String> {
-        FinalizedWitnessData::from_witness_data(self, config)
+    pub fn finalize(&self) -> Result<FinalizedWitnessData<Fr>, String> {
+        FinalizedWitnessData::from_witness_data(self)
     }
 
     /**
@@ -228,7 +232,7 @@ impl WitnessData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::constants::GARBAGE_ROWS;
+    use super::super::mode_config::ImageMode;
 
     #[test]
     fn test_witness_data_creation() {
@@ -247,7 +251,7 @@ mod tests {
         binarized.set(2, 0); // 127
         // 128+ stay white
 
-        let mut witness = WitnessData::new(4, 4, image.clone());
+        let mut witness = WitnessData::new(4, 4, image.clone(), ImageMode::Hd.image_params());
         witness.set_bin_image(binarized);
 
         assert_eq!(witness.width(), 4);
@@ -264,7 +268,7 @@ mod tests {
     #[should_panic(expected = "Image height mismatch")]
     fn test_witness_data_size_mismatch() {
         let image = vec![vec![1, 2, 3]]; // Wrong number of rows
-        let _witness = WitnessData::new(3, 4, image);
+        let _witness = WitnessData::new(3, 4, image, ImageMode::Hd.image_params());
     }
 
     #[test]
@@ -272,18 +276,19 @@ mod tests {
         use super::super::types::{PolynomialResult, RowIndicatorVars};
 
         let image = vec![vec![255; 2]; 2];
-        let mut witness = WitnessData::new(2, 2, image);
+        let hd_params = ImageMode::Hd.image_params();
+        let garbage_rows = hd_params.garbage_rows();
+        let mut witness = WitnessData::new(2, 2, image, hd_params);
 
         // Test that finalization fails when fields are missing
-        let hd_config = super::super::mode_config::ImageMode::Hd.config();
-        assert!(witness.finalize(&hd_config).is_err());
+        assert!(witness.finalize().is_err());
 
         // Populate required fields
         witness.set_bin_image(BitMatrix::new(2, 2).unwrap());
         witness.wb_image = Some(BitMatrix::new(2, 2).unwrap());
         witness.wb_inds = Some(vec![0, 1]);
-        witness.garbage_image = Some(BitMatrix::new(2, GARBAGE_ROWS as u32).unwrap());
-        witness.garbage_inds = Some(vec![-1; GARBAGE_ROWS]);
+        witness.garbage_image = Some(BitMatrix::new(2, garbage_rows as u32).unwrap());
+        witness.garbage_inds = Some(vec![-1; garbage_rows]);
         witness.set_barcode_stats(30, 10, 2);
         witness.set_row_indicators(RowIndicatorVars {
             l0: 1,
@@ -307,7 +312,7 @@ mod tests {
 
         // Verify successful finalization
         let finalized = witness
-            .finalize(&hd_config)
+            .finalize()
             .expect("Should finalize with all fields set");
         assert_eq!(finalized.stats.num_rows, 30);
     }
