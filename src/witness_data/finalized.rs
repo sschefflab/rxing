@@ -413,6 +413,7 @@ impl FinalizedWitnessData<Fr> {
             witness_data.corrected_codewords.clone(),
             "no corrected codewords data",
         )?;
+        let max_data_codewords = params.max_data_codewords();
         let nc = raw_corrected.len().min(max_data_codewords);
         let mut corrected_codewords = vec![0u32; max_data_codewords];
         corrected_codewords[max_data_codewords - nc..].copy_from_slice(&raw_corrected[..nc]);

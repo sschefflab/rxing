@@ -196,21 +196,23 @@ impl ImageParams {
         out.push_str(&format!("const u32 G_LOGM = {};\n", g_logm));
         out.push_str(&format!("const u32 G_CW = {};\n\n", g_cw));
 
-        out.push_str(&format!("const u32 IMAGE_WIDTH = {};\n", self.image_width));
-        out.push_str(&format!("const u32 IMAGE_HEIGHT = {};\n", self.image_height));
-        out.push_str(&format!("const u32 MAX_NUM_ROWS = {};\n", self.max_rows));
-        out.push_str(&format!("const u32 MAX_NUM_COLS = {};\n", self.max_cols));
-        out.push_str(&format!("const u32 MAX_EC_LEVEL = {};\n", self.max_ec_level));
-        out.push_str(&format!("const u32 garbage_rows = {};\n", self.garbage_rows()));
-        out.push_str(&format!("const u32 max_words = {};\n", self.max_data_codewords()));
-        out.push_str(&format!("const u32 max_ec_words = {};\n", self.max_ec_codewords()));
-        out.push_str(&format!("const u32 qbits = {};\n\n", self.qbits()));
+        out.push_str(&format!("const u32 C = {};\n", self.image_width));
+        out.push_str(&format!("const u32 R = {};\n", self.image_height));
+        out.push_str(&format!("const u32 R_W = {};\n", self.max_rows));
+        out.push_str(&format!("const u32 C_W = {};\n", self.max_cols));
+        out.push_str(&format!("const u32 EC = {};\n", self.max_ec_level));
+        out.push_str(&format!("const u32 G_R = {};\n", self.garbage_rows()));
+        out.push_str(&format!("const u32 W = {};\n", self.max_data_codewords()));
+        out.push_str(&format!("const u32 EC_W = {};\n", self.max_ec_codewords()));
+        out.push_str(&format!("const u32 QBITS = {};\n\n", self.qbits()));
 
         // WB powers of B
         out.push_str(&format!("const field[WB_M][2] WB_POWERS_OF_B = [\n"));
         for row in &wb_powers {
             out.push_str(&format!("    [{}, {}]", row[0], row[1]));
-            if row[0] as usize + 1 < wb_m { out.push(','); }
+            if row[0] as usize + 1 < wb_m {
+                out.push(',');
+            }
             out.push('\n');
         }
         out.push_str("];\n\n");
@@ -219,7 +221,9 @@ impl ImageParams {
         out.push_str(&format!("const field[G_M][2] G_POWERS_OF_B = [\n"));
         for row in &g_powers {
             out.push_str(&format!("    [{}, {}]", row[0], row[1]));
-            if row[0] as usize + 1 < g_m { out.push(','); }
+            if row[0] as usize + 1 < g_m {
+                out.push(',');
+            }
             out.push('\n');
         }
         out.push_str("];\n\n");
@@ -231,7 +235,9 @@ impl ImageParams {
                 "    [{}, {}, {}, {}, {}, {}]",
                 row[0], row[1], row[2], row[3], row[4], row[5]
             ));
-            if idx + 1 < table_len { out.push(','); }
+            if idx + 1 < table_len {
+                out.push(',');
+            }
             out.push('\n');
         }
         out.push_str("];\n\n");
@@ -243,7 +249,9 @@ impl ImageParams {
                 "    [{}, {}, {}, {}, {}, {}]",
                 row[0], row[1], row[2], row[3], row[4], row[5]
             ));
-            if idx + 1 < table_len { out.push(','); }
+            if idx + 1 < table_len {
+                out.push(',');
+            }
             out.push('\n');
         }
         out.push_str("];\n\n");
@@ -318,7 +326,9 @@ impl ImageMode {
 
 /// ceil(log2(n)), with ceil_log2(0) = 0 and ceil_log2(1) = 0.
 fn ceil_log2(n: usize) -> usize {
-    if n <= 1 { return 0; }
+    if n <= 1 {
+        return 0;
+    }
     usize::BITS as usize - (n - 1).leading_zeros() as usize
 }
 
@@ -358,7 +368,14 @@ fn generate_chunk_lookup(b: u128, l: usize) -> Vec<[u128; 6]> {
             .enumerate()
             .map(|(j, &s)| b.pow(j as u32) * s as u128)
             .sum();
-        table.push([i as u128, enc_baseb, remainder as u128, nb as u128, odd, black]);
+        table.push([
+            i as u128,
+            enc_baseb,
+            remainder as u128,
+            nb as u128,
+            odd,
+            black,
+        ]);
     }
     table
 }
