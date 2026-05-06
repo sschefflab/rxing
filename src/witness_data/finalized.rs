@@ -9,9 +9,9 @@ use serde::Serialize;
 
 use super::accumulator::WitnessData;
 use super::block_ops::{
-    compute_blocks, compute_ext_codewords_from_widths, compute_garbage_word_witnesses,
-    compute_lookups_and_decomps, compute_normalized_widths, compute_words,
-    compute_words_with_dummies,
+    codewords_from_words_and_ext, compute_blocks, compute_ext_codewords_from_widths,
+    compute_garbage_word_witnesses, compute_lookups_and_decomps, compute_normalized_widths,
+    compute_words, compute_words_with_dummies,
 };
 use super::mode_config::{G_MAX_DECOMPS, ImageParams, WB_MAX_DECOMPS};
 use super::types::{
@@ -20,7 +20,7 @@ use super::types::{
 };
 use crate::common::BitMatrix;
 use crate::disjoint_set_polynomials::{
-    show_disjoint_from_valid_width_words, VALID_WIDTH_WORDS_LEN,
+    VALID_WIDTH_WORDS_LEN, show_disjoint_from_valid_width_words,
 };
 
 #[cfg(feature = "serde")]
@@ -41,7 +41,11 @@ use super::serde_support::{serialize_bitmatrix, serialize_fr_vec, serialize_u16_
 ///      where pad_count = row_count × column_count − 1 (SLD) − ec_count − text_codewords
 ///   5. 2^(ec_level + 1) EC codewords → 2 `EC_TABLE_STATE` entries each
 /// Total is padded to exactly `MAX_CHARS`.
-fn add_dummy_table_states(char_table_states: &mut Vec<TableState>, stats: &BarcodeStats, max_chars: usize) {
+fn add_dummy_table_states(
+    char_table_states: &mut Vec<TableState>,
+    stats: &BarcodeStats,
+    max_chars: usize,
+) {
     let text_codeword_count = char_table_states.len() as u32 / 2;
 
     // SLD precedes text in the codeword array, so prepend its states before the text states.
@@ -136,7 +140,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub wb_normalized_widths: Vec<Vec<[u32; 6]>>,
 
     #[allow(dead_code)]
-    // #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "serde", serde(skip))]
     wb_words: Vec<Vec<u64>>, // only used for testing
 
     // coefficients of polynomials showing that the stuff we throw out from the well-behaved image is disjoint from valid words
@@ -218,7 +222,6 @@ impl FinalizedWitnessData<Fr> {
         stats: BarcodeStats,
         row_indicators: RowIndicatorVars,
         all_left_row_indicators: Vec<u32>,
-        codewords: Vec<u32>,
         corrected_codewords: Vec<u32>,
         polynomial_results: Vec<PolynomialResult>,
         char_table_states: Vec<TableState>,
@@ -284,19 +287,20 @@ impl FinalizedWitnessData<Fr> {
 
         let g_blocks = compute_blocks(&garbage_image, params.garbage_nb());
         let g_cw = params.garbage_col_words();
-        let garbage_normalized_widths: Vec<Vec<[u32; 6]>> =
-            compute_normalized_widths(&g_blocks)
-                .into_iter()
-                .map(|mut row| {
-                    row.resize(g_cw, [0u32; 6]);
-                    row
-                })
-                .collect();
+        let garbage_normalized_widths: Vec<Vec<[u32; 6]>> = compute_normalized_widths(&g_blocks)
+            .into_iter()
+            .map(|mut row| {
+                row.resize(g_cw, [0u32; 6]);
+                row
+            })
+            .collect();
 
         let wb_words = compute_words(&wb_normalized_widths);
         let (words_with_dummies, wb_garbage) = compute_words_with_dummies(&wb_normalized_widths);
         let wb_n = wb_normalized_widths.len() * wb_normalized_widths.first().map_or(0, |r| r.len());
-        let ext_codewords = compute_ext_codewords_from_widths(&wb_normalized_widths, &words_with_dummies);
+        let ext_codewords =
+            compute_ext_codewords_from_widths(&wb_normalized_widths, &words_with_dummies);
+
         let (mut wb_disjoint_set_poly_f, mut wb_disjoint_set_poly_g) =
             show_disjoint_from_valid_width_words(wb_garbage);
         wb_disjoint_set_poly_f.resize(VALID_WIDTH_WORDS_LEN, Fr::zero());
@@ -306,10 +310,42 @@ impl FinalizedWitnessData<Fr> {
         let (garbage_words, garbage_word_index) =
             compute_garbage_word_witnesses(&garbage_normalized_widths);
         let g_n = garbage_normalized_widths.len();
+
         let (mut garbage_disjoint_set_poly_f, mut garbage_disjoint_set_poly_g) =
             show_disjoint_from_valid_width_words(garbage_words.clone());
         garbage_disjoint_set_poly_f.resize(VALID_WIDTH_WORDS_LEN, Fr::zero());
         garbage_disjoint_set_poly_g.resize(g_n, Fr::zero());
+
+        // Recompute codewords from width-based decoding so the witness matches what the circuit
+        // extracts in cw_and_dummies. Positions that don't decode exactly (ext_cw == DUMMY_CW)
+        // are omitted, just as they are in the circuit.
+        let codewords = codewords_from_words_and_ext(
+            &words_with_dummies,
+            &ext_codewords,
+            params.max_data_codewords(),
+        );
+        // Verify the error polynomial will be sufficiently sparse for decoding.
+        // If there are too many, the image is too noisy for the circuit to verify.
+        // This can happen because rxing uses a more robust normalization method than the circuit.
+        let num_diffs = codewords
+            .iter()
+            .zip(corrected_codewords.iter())
+            .filter(|(cw, ccw)| cw != ccw)
+            .count() as u32;
+        let num_ec_cw = stats.num_ec_codewords as u32;
+        if num_ec_cw == 0 {
+            assert!(
+                num_diffs == 0,
+                "decoding errors ({num_diffs}) with no EC codewords"
+            );
+        } else {
+            assert!(
+                num_ec_cw >= 2 * num_diffs + 3,
+                "too many decoding errors ({num_diffs}) for EC level with {num_ec_cw} codewords: \
+                 need num_ec_cw >= 2*errors+3 but {num_ec_cw} < {}",
+                2 * num_diffs + 3
+            );
+        }
 
         Self {
             width,
@@ -351,9 +387,7 @@ impl FinalizedWitnessData<Fr> {
         }
     }
 
-    pub fn from_witness_data(
-        witness_data: &WitnessData,
-    ) -> Result<Self, String> {
+    pub fn from_witness_data(witness_data: &WitnessData) -> Result<Self, String> {
         let params = &witness_data.image_params;
         let bin_image = Option::ok_or(witness_data.bin_image.clone(), "no binarized image data")?;
 
@@ -374,17 +408,6 @@ impl FinalizedWitnessData<Fr> {
             "no all left row indicators data",
         )?;
         all_left_row_indicators.resize(params.max_rows, 0);
-
-        // Circuits expect codewords left-padded to W=max_data_codewords: actual codewords at
-        // the end, leading zeros as padding. This lets the SLD (always non-zero, always first
-        // real codeword) serve as a natural divider between padding and real data in the circuits.
-        // With left-padding the polynomial evaluation in error_correction.zok reduces to
-        // the standard descending evaluation that rxing computes.
-        let max_data_codewords = params.max_data_codewords();
-        let raw_codewords = Option::ok_or(witness_data.codewords.clone(), "no codewords data")?;
-        let n = raw_codewords.len().min(max_data_codewords);
-        let mut codewords = vec![0u32; max_data_codewords];
-        codewords[max_data_codewords - n..].copy_from_slice(&raw_codewords[..n]);
 
         let raw_corrected = Option::ok_or(
             witness_data.corrected_codewords.clone(),
@@ -422,7 +445,6 @@ impl FinalizedWitnessData<Fr> {
             stats,
             row_indicators,
             all_left_row_indicators,
-            codewords,
             corrected_codewords,
             polynomial_results,
             char_table_states,

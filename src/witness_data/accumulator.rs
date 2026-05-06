@@ -49,9 +49,6 @@ pub struct WitnessData {
 
     pub all_left_row_indicators: Option<Vec<u32>>,
 
-    /// Codewords before error correction
-    pub codewords: Option<Vec<u32>>,
-
     /// Codewords after error correction
     pub corrected_codewords: Option<Vec<u32>>,
 
@@ -78,7 +75,12 @@ impl WitnessData {
      * # Panics
      * Panics if the image dimensions don't match width and height
      */
-    pub fn new(width: usize, height: usize, image: Vec<Vec<u8>>, image_params: ImageParams) -> Self {
+    pub fn new(
+        width: usize,
+        height: usize,
+        image: Vec<Vec<u8>>,
+        image_params: ImageParams,
+    ) -> Self {
         assert_eq!(
             image.len(),
             height,
@@ -110,7 +112,6 @@ impl WitnessData {
             stats: None,
             row_indicators: None,
             all_left_row_indicators: None,
-            codewords: None,
             corrected_codewords: None,
             polynomial_results: None,
             char_table_states: None,
@@ -169,8 +170,7 @@ impl WitnessData {
         self.all_left_row_indicators = Some(all_left_row_indicators);
     }
 
-    pub fn set_codewords(&mut self, codewords: Vec<u32>, corrected_codewords: Vec<u32>) {
-        self.codewords = Some(codewords);
+    pub fn set_codewords(&mut self, corrected_codewords: Vec<u32>) {
         self.corrected_codewords = Some(corrected_codewords);
     }
 
@@ -231,8 +231,8 @@ impl WitnessData {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::mode_config::ImageMode;
+    use super::*;
 
     #[test]
     fn test_witness_data_creation() {
@@ -301,7 +301,7 @@ mod tests {
             r3: 1,
         });
         witness.set_all_left_row_indicators(vec![]);
-        witness.set_codewords(vec![1, 2], vec![1, 2]);
+        witness.set_codewords(vec![1, 2]);
         witness.set_polynomial_results(vec![PolynomialResult {
             result: 0,
             result_quotient: 0,
