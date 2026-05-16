@@ -31,19 +31,30 @@ impl CliImageMode {
         &self,
         image_width: Option<usize>,
         image_height: Option<usize>,
+        barcode_width: Option<usize>,
+        barcode_height: Option<usize>,
+        r_start: Option<usize>,
+        c_start: Option<usize>,
         max_rows: Option<usize>,
         max_cols: Option<usize>,
         max_ec_level: Option<usize>,
         chunk_size: Option<usize>,
     ) -> Result<rxing::ImageParams, String> {
         match self {
+            // TODO: presets assume barcode fills full image (r_start=0, c_start=0, barcode_dims=image_dims)
             CliImageMode::Hd => Ok(rxing::ImageMode::Hd.image_params()),
             CliImageMode::Sd => Ok(rxing::ImageMode::Sd.image_params()),
             CliImageMode::Small => Ok(rxing::ImageMode::Small.image_params()),
             CliImageMode::Custom => {
+                let iw = image_width.ok_or("--image-width is required for --image-mode custom")?;
+                let ih = image_height.ok_or("--image-height is required for --image-mode custom")?;
                 let params = rxing::ImageParams {
-                    image_width: image_width.ok_or("--image-width is required for --image-mode custom")?,
-                    image_height: image_height.ok_or("--image-height is required for --image-mode custom")?,
+                    image_width: iw,
+                    image_height: ih,
+                    barcode_width: barcode_width.unwrap_or(iw),
+                    barcode_height: barcode_height.unwrap_or(ih),
+                    r_start: r_start.unwrap_or(0),
+                    c_start: c_start.unwrap_or(0),
                     max_rows: max_rows.ok_or("--max-rows is required for --image-mode custom")?,
                     max_cols: max_cols.ok_or("--max-cols is required for --image-mode custom")?,
                     max_ec_level: max_ec_level.ok_or("--max-ec-level is required for --image-mode custom")?,
@@ -117,6 +128,22 @@ enum Commands {
         #[arg(long)]
         image_height: Option<usize>,
 
+        /// (custom mode) Barcode crop width in pixels (C in the circuit). Defaults to image_width.
+        #[arg(long)]
+        barcode_width: Option<usize>,
+
+        /// (custom mode) Barcode crop height in pixels (R in the circuit). Defaults to image_height.
+        #[arg(long)]
+        barcode_height: Option<usize>,
+
+        /// (custom mode) Row offset of the top-left corner of the barcode crop (R_START). Defaults to 0.
+        #[arg(long)]
+        r_start: Option<usize>,
+
+        /// (custom mode) Column offset of the top-left corner of the barcode crop (C_START). Defaults to 0.
+        #[arg(long)]
+        c_start: Option<usize>,
+
         /// (custom mode) Maximum number of logical barcode rows (spec limit, ≤ 90).
         #[arg(long)]
         max_rows: Option<usize>,
@@ -129,7 +156,7 @@ enum Commands {
         #[arg(long)]
         max_ec_level: Option<usize>,
 
-        /// (custom mode) Block chunk size in pixels (L). Must divide image_width evenly.
+        /// (custom mode) Block chunk size in pixels (L). Must divide barcode_width evenly.
         #[arg(long)]
         chunk_size: Option<usize>,
 
@@ -328,6 +355,22 @@ enum Commands {
         #[arg(long, default_value_t = 720)]
         image_height: usize,
 
+        /// Barcode crop width in pixels (C in the circuit). Defaults to image_width.
+        #[arg(long)]
+        barcode_width: Option<usize>,
+
+        /// Barcode crop height in pixels (R in the circuit). Defaults to image_height.
+        #[arg(long)]
+        barcode_height: Option<usize>,
+
+        /// Row offset of the top-left corner of the barcode crop (R_START). Defaults to 0.
+        #[arg(long, default_value_t = 0)]
+        r_start: usize,
+
+        /// Column offset of the top-left corner of the barcode crop (C_START). Defaults to 0.
+        #[arg(long, default_value_t = 0)]
+        c_start: usize,
+
         /// Maximum number of logical barcode rows (spec limit, ≤ 90).
         #[arg(long, default_value_t = 90)]
         max_rows: usize,
@@ -340,7 +383,7 @@ enum Commands {
         #[arg(long, default_value_t = 8)]
         max_ec_level: usize,
 
-        /// Block chunk size in pixels (L). Must divide image_width evenly.
+        /// Block chunk size in pixels (L). Must divide barcode_width evenly.
         #[arg(long, default_value_t = 10)]
         chunk_size: usize,
     },
@@ -370,6 +413,10 @@ fn main() -> ExitCode {
             image_mode,
             image_width,
             image_height,
+            barcode_width,
+            barcode_height,
+            r_start,
+            c_start,
             max_rows,
             max_cols,
             max_ec_level,
@@ -396,6 +443,10 @@ fn main() -> ExitCode {
             image_mode,
             *image_width,
             *image_height,
+            *barcode_width,
+            *barcode_height,
+            *r_start,
+            *c_start,
             *max_rows,
             *max_cols,
             *max_ec_level,
@@ -449,11 +500,27 @@ fn main() -> ExitCode {
             output,
             image_width,
             image_height,
+            barcode_width,
+            barcode_height,
+            r_start,
+            c_start,
             max_rows,
             max_cols,
             max_ec_level,
             chunk_size,
-        } => generate_params_command(output, *image_width, *image_height, *max_rows, *max_cols, *max_ec_level, *chunk_size),
+        } => generate_params_command(
+            output,
+            *image_width,
+            *image_height,
+            barcode_width.unwrap_or(*image_width),
+            barcode_height.unwrap_or(*image_height),
+            *r_start,
+            *c_start,
+            *max_rows,
+            *max_cols,
+            *max_ec_level,
+            *chunk_size,
+        ),
     }
 }
 
@@ -461,6 +528,10 @@ fn generate_params_command(
     output: &str,
     image_width: usize,
     image_height: usize,
+    barcode_width: usize,
+    barcode_height: usize,
+    r_start: usize,
+    c_start: usize,
     max_rows: usize,
     max_cols: usize,
     max_ec_level: usize,
@@ -470,6 +541,10 @@ fn generate_params_command(
     let params = rxing::ImageParams {
         image_width,
         image_height,
+        barcode_width,
+        barcode_height,
+        r_start,
+        c_start,
         max_rows,
         max_cols,
         max_ec_level,
@@ -518,12 +593,16 @@ fn decode_command(
     image_mode: &CliImageMode,
     image_width: Option<usize>,
     image_height: Option<usize>,
+    barcode_width: Option<usize>,
+    barcode_height: Option<usize>,
+    r_start: Option<usize>,
+    c_start: Option<usize>,
     max_rows: Option<usize>,
     max_cols: Option<usize>,
     max_ec_level: Option<usize>,
     chunk_size: Option<usize>,
 ) -> ExitCode {
-    let image_params = match image_mode.to_image_params(image_width, image_height, max_rows, max_cols, max_ec_level, chunk_size) {
+    let image_params = match image_mode.to_image_params(image_width, image_height, barcode_width, barcode_height, r_start, c_start, max_rows, max_cols, max_ec_level, chunk_size) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("Image mode error: {e}");

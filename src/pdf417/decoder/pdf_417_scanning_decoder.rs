@@ -244,15 +244,11 @@ pub fn decode(
             wb_bm.setRow(dest_row as u32, &image.getRow(src_row));
         }
 
-        // garbage_image: exactly garbage_rows rows. Rows outside the bounding box plus non-good
-        // bounding-box rows, remainder padded with zero rows. garbage_inds uses -1 for padded rows.
-        let garbage_rows = witness_data.as_deref()
+        // garbage_image: exactly garbage_rows rows. Non-good bounding-box rows only,
+        // remainder padded with zero rows. garbage_inds uses -1 for padded rows.
+        let garbage_rows = witness_data
+            .as_deref()
             .map_or(89usize, |wd| wd.image_params.garbage_rows());
-        let mut outside_inds: Vec<i32> = (0..image_height)
-            .filter(|&y| y < min_y || y > max_y)
-            .map(|y| y as i32)
-            .collect();
-        garbage_inds.append(&mut outside_inds);
 
         assert!(
             garbage_inds.len() <= garbage_rows,
@@ -939,7 +935,8 @@ fn correctErrors(
     numECCodewords: u32,
     witness_data: Option<&mut WitnessData>,
 ) -> Result<usize> {
-    let max_ec = witness_data.as_deref()
+    let max_ec = witness_data
+        .as_deref()
         .map_or(512usize, |wd| wd.image_params.max_ec_codewords()) as u32;
     if !erasures.is_empty() && erasures.len() as u32 > numECCodewords / 2 + MAX_ERRORS
         /*|| numECCodewords < 0*/
