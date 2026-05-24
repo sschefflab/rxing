@@ -272,6 +272,13 @@ impl ImageParams {
         out.push_str("];\n\n");
 
         // Range check tables (inline so circuits don't need const_range_check.zok)
+        // Word-width constants (used for words range tables in the circuit)
+        let wb_ww = (self.image_width + 4) / 5; // ceil(image_width / 5)
+        let g_ww = self.image_width;
+        out.push_str(&format!("const u32 WB_WW = {};\n", wb_ww));
+        out.push_str(&format!("const u32 G_WW = {};\n\n", g_ww));
+
+        // Range check tables (inline so circuits don't need const_range_check.zok)
         out.push_str("const field[WB_B] RANGE_0_WB_B = [");
         let wb_range: Vec<String> = (0..wb_b).map(|i| i.to_string()).collect();
         out.push_str(&wb_range.join(", "));
@@ -280,6 +287,16 @@ impl ImageParams {
         out.push_str("const field[G_B] RANGE_0_G_B = [");
         let g_range: Vec<String> = (0..g_b).map(|i| i.to_string()).collect();
         out.push_str(&g_range.join(", "));
+        out.push_str("];\n\n");
+
+        out.push_str("const field[2*WB_WW] WB_WORDS_RANGE = [");
+        let wb_words_range: Vec<String> = (0..2 * wb_ww).map(|i| i.to_string()).collect();
+        out.push_str(&wb_words_range.join(", "));
+        out.push_str("];\n\n");
+
+        out.push_str("const field[2*G_WW] G_WORDS_RANGE = [");
+        let g_words_range: Vec<String> = (0..2 * g_ww).map(|i| i.to_string()).collect();
+        out.push_str(&g_words_range.join(", "));
         out.push_str("];\n\n");
 
         out.push_str("def main() {\n    assert(true);\n}\n");
