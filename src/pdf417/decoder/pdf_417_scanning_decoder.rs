@@ -196,7 +196,6 @@ pub fn decode(
         let max_y = boundingBox.getMaxY();
         let barcode_col_count = detectionRXingResult.getBarcodeColumnCount();
         let image_width = image.getWidth();
-        let image_height = image.getHeight();
         let num_rows = (max_y - min_y + 1) as usize;
 
         // Determine which bounding-box rows are well-behaved

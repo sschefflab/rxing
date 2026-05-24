@@ -333,7 +333,7 @@ impl FinalizedWitnessData<Fr> {
             );
         } else {
             assert!(
-                num_ec_cw >= 2 * num_diffs + 3,
+                num_diffs == 0 || num_ec_cw >= 2 * num_diffs + 3,
                 "too many decoding errors ({num_diffs}) for EC level with {num_ec_cw} codewords: \
                  need num_ec_cw >= 2*errors+3 but {num_ec_cw} < {}",
                 2 * num_diffs + 3

@@ -75,10 +75,10 @@ impl ImageParams {
     // ── Well-behaved-row derived values ───────────────────────────────────────
 
     /// Base B for well-behaved chunk encoding.
-    /// = ceil(barcode_width / 85) * 8 + 1
-    /// (85 = minimum modules per row; *8 = pixels per bar; +1 makes it a base)
+    /// = ceil(barcode_width / 86) * 8 + 1
+    /// (86 = minimum modules per row - 17 for start, lri, data, rri, 18 for stop; *8 = pixels per bar; +1 makes it a base)
     pub fn wb_b(&self) -> usize {
-        ((self.barcode_width + 84) / 85) * 8 + 1
+        ((self.barcode_width + 85) / 86) * 8 + 1
     }
 
     /// Number of well-behaved blocks per row.
