@@ -7,10 +7,10 @@
 
 /// Fixed upper bound for the well-behaved decomp array size (across all configs).
 /// Any ImageParams must produce wb_num_decomps() ≤ this value.
-pub const WB_MAX_DECOMPS: usize = 8;
+pub const WB_MAX_DECOMPS: usize = 13;
 
 /// Fixed upper bound for the garbage decomp array size (across all configs).
-pub const G_MAX_DECOMPS: usize = 10;
+pub const G_MAX_DECOMPS: usize = 13;
 
 /// Image and barcode parameters from which all circuit constants are derived.
 #[derive(Debug, Clone)]
