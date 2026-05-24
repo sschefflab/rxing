@@ -49,6 +49,9 @@ pub struct WitnessData {
 
     pub all_left_row_indicators: Option<Vec<u32>>,
 
+    /// Codewords before error correction
+    pub codewords: Option<Vec<u32>>,
+
     /// Codewords after error correction
     pub corrected_codewords: Option<Vec<u32>>,
 
@@ -112,6 +115,7 @@ impl WitnessData {
             stats: None,
             row_indicators: None,
             all_left_row_indicators: None,
+            codewords: None,
             corrected_codewords: None,
             polynomial_results: None,
             char_table_states: None,
@@ -170,7 +174,8 @@ impl WitnessData {
         self.all_left_row_indicators = Some(all_left_row_indicators);
     }
 
-    pub fn set_codewords(&mut self, corrected_codewords: Vec<u32>) {
+    pub fn set_codewords(&mut self, codewords: Vec<u32>, corrected_codewords: Vec<u32>) {
+        self.codewords = Some(codewords);
         self.corrected_codewords = Some(corrected_codewords);
     }
 
@@ -301,7 +306,7 @@ mod tests {
             r3: 1,
         });
         witness.set_all_left_row_indicators(vec![]);
-        witness.set_codewords(vec![1, 2]);
+        witness.set_codewords(vec![1, 2], vec![1, 2]);
         witness.set_polynomial_results(vec![PolynomialResult {
             result: 0,
             result_quotient: 0,

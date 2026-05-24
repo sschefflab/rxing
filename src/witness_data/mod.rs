@@ -13,7 +13,6 @@
 
 pub mod accumulator;
 pub mod block_ops;
-mod width_tables;
 pub mod disjoint_set_polynomials;
 pub mod finalized;
 pub mod mode_config;

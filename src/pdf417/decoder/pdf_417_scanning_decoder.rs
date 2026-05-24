@@ -539,6 +539,7 @@ fn createDecoderRXingResultFromAmbiguousValues(
             codewords[ambiguousIndexes[i] as usize] =
                 ambiguousIndexValues[i][ambiguousIndexCount[i]];
         }
+        let pre_correction_codewords: Vec<u32> = codewords.to_vec();
         let attempted_decode = decodeCodewords(
             codewords,
             ecLevel,
@@ -547,7 +548,7 @@ fn createDecoderRXingResultFromAmbiguousValues(
         );
         if attempted_decode.is_ok() {
             if let Some(wd) = witness_data.as_deref_mut() {
-                wd.set_codewords(codewords.to_vec());
+                wd.set_codewords(pre_correction_codewords, codewords.to_vec());
                 let table_states = decoded_bit_stream_parser::collect_table_states(codewords);
                 wd.set_char_table_states(table_states);
             }

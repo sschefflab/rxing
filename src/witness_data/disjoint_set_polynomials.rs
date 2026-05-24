@@ -2,7 +2,6 @@ use ark_ed25519::Fr;
 use ark_poly::univariate::DensePolynomial;
 use std::sync::OnceLock;
 
-use super::block_ops::VALID_WIDTH_WORDS;
 use super::polynomial_bezout::{bezout, poly_from_roots};
 
 // Valid PDF417 bar-space patterns (including START and STOP patterns).
@@ -346,23 +345,3 @@ pub fn show_disjoint_from_valid_words(a_set: Vec<u64>) -> (Vec<Fr>, Vec<Fr>) {
     (f.coeffs, g.coeffs)
 }
 
-pub const VALID_WIDTH_WORDS_LEN: usize = 2789;
-
-static VALID_WIDTH_WORDS_POLY: OnceLock<DensePolynomial<Fr>> = OnceLock::new();
-
-fn get_valid_width_words_poly() -> &'static DensePolynomial<Fr> {
-    VALID_WIDTH_WORDS_POLY.get_or_init(|| {
-        let roots: Vec<Fr> = VALID_WIDTH_WORDS.iter().map(|&w| Fr::from(w)).collect();
-        poly_from_roots(&roots)
-    })
-}
-
-/// Width-word variant of show_disjoint_from_valid_words.
-/// Proves that a_set is disjoint from VALID_WIDTH_WORDS (base-13 encoded width patterns).
-pub fn show_disjoint_from_valid_width_words(a_set: Vec<u64>) -> (Vec<Fr>, Vec<Fr>) {
-    let a_set_f: Vec<Fr> = a_set.iter().map(|&v| Fr::from(v)).collect();
-    let t = get_valid_width_words_poly();
-    let a = poly_from_roots(&a_set_f);
-    let (f, g) = bezout(&a, t);
-    (f.coeffs, g.coeffs)
-}
