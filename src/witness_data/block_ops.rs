@@ -208,17 +208,18 @@ pub fn compute_blocks(image: &BitMatrix, len: usize) -> Vec<Vec<u32>> {
     result
 }
 
-/// Word value of the PDF417 start pattern
-pub const START_WORD: u32 = 81_111_113;
-/// Word value of the PDF417 stop pattern
-pub const STOP_WORD: u32 = 71_131_112;
+/// Word value of the PDF417 start pattern ([8,1,1,1,1,1,1,3] in base-18)
+pub const START_WORD: u64 = 4_933_773_201;
+/// Word value of the PDF417 stop pattern ([7,1,1,3,1,1,1,2] in base-18)
+pub const STOP_WORD: u64 = 4_321_763_120;
 
 pub const DUMMY_CW: u32 = 919;
 
-/// Converts a normalized 8-element block into a single integer by concatenating digits.
-/// e.g. [1,2,3,4,4,3,2,1] → 12344321
+/// Converts a normalized 8-element block into a base-18 integer.
+/// Each element is a module count (0–17); base 18 is the smallest base that exceeds
+/// the maximum possible module count, guaranteeing unique encodings.
 pub fn get_word(block: &[u32; 8]) -> u64 {
-    block.iter().fold(0u64, |acc, &b| acc * 10 + b as u64)
+    block.iter().fold(0u64, |acc, &b| acc * 18 + b as u64)
 }
 
 /// Converts a normalized 8-element block to its binary symbol value (same logic as
@@ -245,7 +246,7 @@ fn decodes_exactly(block: &[u32; 8]) -> bool {
 ///   - otherwise → the PDF417 codeword index (0–928) from the lookup table
 fn ext_codeword_of(block: &[u32; 8], word: u64) -> u32 {
     use crate::pdf417::pdf_417_common;
-    if word == 0 || word == START_WORD as u64 || word == STOP_WORD as u64 {
+    if word == 0 || word == START_WORD || word == STOP_WORD {
         return DUMMY_CW;
     }
     let cw = pdf_417_common::getCodeword(bit_value_of_block(block));
@@ -299,7 +300,7 @@ pub fn codewords_from_words_and_ext(
         if row_words.iter().all(|&w| w == 0) {
             continue;
         }
-        let stop_pos = row_words.iter().position(|&w| w == STOP_WORD as u64);
+        let stop_pos = row_words.iter().position(|&w| w == STOP_WORD);
         for j in 2..row_words.len() {
             if let Some(sp) = stop_pos {
                 if j >= sp {
@@ -350,8 +351,8 @@ pub fn compute_words_with_dummies(
                     .enumerate()
                     .map(|(j, block)| {
                         let word = get_word(block);
-                        if word == START_WORD as u64
-                            || word == STOP_WORD as u64
+                        if word == START_WORD
+                            || word == STOP_WORD
                             || decodes_exactly(block)
                         {
                             word
@@ -391,7 +392,7 @@ pub fn compute_garbage_word_witnesses(normalized_blocks: &[Vec<[u32; 8]>]) -> (V
                 .enumerate()
                 .find(|(_, block)| {
                     let word = get_word(block);
-                    word != START_WORD as u64 && word != STOP_WORD as u64 && !decodes_exactly(block)
+                    word != START_WORD && word != STOP_WORD && !decodes_exactly(block)
                 })
                 .map(|(idx, block)| (get_word(block), idx as u64))
                 .unwrap_or_else(|| {
@@ -407,7 +408,7 @@ pub fn compute_garbage_word_witnesses(normalized_blocks: &[Vec<[u32; 8]>]) -> (V
 /// is invalid input to sampleBitCounts; the all-zero block is itself an invalid
 /// codeword and serves as its own garbage witness).
 pub fn compute_normalized_blocks(blocks: &[Vec<u32>]) -> Vec<Vec<[u32; 8]>> {
-    use crate::pdf417::decoder::pdf_417_codeword_decoder::sampleBitCounts;
+    use crate::pdf417::decoder::pdf_417_codeword_decoder::sampleBitCountsExact;
     blocks
         .iter()
         .map(|row| {
@@ -416,7 +417,7 @@ pub fn compute_normalized_blocks(blocks: &[Vec<u32>]) -> Vec<Vec<[u32; 8]>> {
                     if window.iter().any(|&x| x == 0) {
                         [0u32; 8]
                     } else {
-                        sampleBitCounts(window)
+                        sampleBitCountsExact(window)
                     }
                 })
                 .collect()

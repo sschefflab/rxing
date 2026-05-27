@@ -25,7 +25,7 @@ use crate::pdf417::pdf_417_common;
 /// Returns u32::MAX if the sampled bit counts don't correspond to a valid codeword;
 /// callers treat this as an erasure rather than using a closest-match fallback.
 pub fn getDecodedValue(moduleBitCount: &[u32]) -> u32 {
-    let decodedValue = getDecodedCodewordValue(&sampleBitCounts(moduleBitCount));
+    let decodedValue = getDecodedCodewordValue(&sampleBitCountsExact(moduleBitCount));
     if decodedValue != -1 {
         decodedValue as u32
     } else {

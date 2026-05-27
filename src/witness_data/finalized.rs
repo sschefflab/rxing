@@ -9,9 +9,9 @@ use serde::Serialize;
 
 use super::accumulator::WitnessData;
 use super::block_ops::{
-    compute_blocks, compute_ext_codewords,
-    compute_garbage_word_witnesses, compute_lookups_and_decomps, compute_normalized_blocks,
-    compute_words, compute_words_with_dummies,
+    compute_blocks, compute_ext_codewords, compute_garbage_word_witnesses,
+    compute_lookups_and_decomps, compute_normalized_blocks, compute_words,
+    compute_words_with_dummies,
 };
 use super::mode_config::{G_MAX_DECOMPS, ImageParams, WB_MAX_DECOMPS};
 use super::types::{
@@ -138,7 +138,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub wb_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
     #[allow(dead_code)]
-    #[cfg_attr(feature = "serde", serde(skip))]
+    // #[cfg_attr(feature = "serde", serde(skip))]
     wb_words: Vec<Vec<u64>>, // only used for testing
 
     // coefficients of polynomials showing that the stuff we throw out from the well-behaved image is disjoint from valid words
@@ -152,7 +152,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub garbage_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
     #[allow(dead_code)]
-    #[cfg_attr(feature = "serde", serde(skip))]
+    // #[cfg_attr(feature = "serde", serde(skip))]
     garbage_rows: Vec<Vec<u64>>, // Full 2D word grid for the garbage image; used by the circuit via compute_words. Only exported here for testing.
 
     /// For each garbage row, the bar-space pattern of the first column that failed to decode.
@@ -297,8 +297,7 @@ impl FinalizedWitnessData<Fr> {
         let wb_words = compute_words(&wb_normalized_blocks);
         let (words_with_dummies, wb_garbage) = compute_words_with_dummies(&wb_normalized_blocks);
         let wb_n = wb_normalized_blocks.len() * wb_normalized_blocks.first().map_or(0, |r| r.len());
-        let ext_codewords =
-            compute_ext_codewords(&wb_normalized_blocks, &words_with_dummies);
+        let ext_codewords = compute_ext_codewords(&wb_normalized_blocks, &words_with_dummies);
 
         let (mut wb_disjoint_set_poly_f, mut wb_disjoint_set_poly_g) =
             show_disjoint_from_valid_words(wb_garbage);
