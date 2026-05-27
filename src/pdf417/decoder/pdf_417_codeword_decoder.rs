@@ -33,6 +33,30 @@ pub fn getDecodedValue(moduleBitCount: &[u32]) -> u32 {
     }
 }
 
+/// Like sampleBitCounts but uses `while` instead of `if` to advance the bar index,
+/// so each sample point is assigned to whichever bar it geometrically falls inside.
+/// This allows bars to receive 0 counts (when narrower than one module) without the
+/// "rescue" behaviour of sampleBitCounts that spills into the next bar.
+pub fn sampleBitCountsExact(moduleBitCount: &[u32]) -> [u32; 8] {
+    let bitCountSum: u32 = moduleBitCount.iter().sum();
+    let mut result = [0u32; pdf_417_common::BARS_IN_MODULE as usize];
+    let mut bitCountIndex = 0usize;
+    let mut sumPreviousBits = 0u32;
+    for i in 0..pdf_417_common::MODULES_IN_CODEWORD {
+        let sampleIndex: f32 = bitCountSum as f32
+            / (2.0 * pdf_417_common::MODULES_IN_CODEWORD as f32)
+            + (i as f32 * bitCountSum as f32) / pdf_417_common::MODULES_IN_CODEWORD as f32;
+        while bitCountIndex + 1 < pdf_417_common::BARS_IN_MODULE as usize
+            && sumPreviousBits as f32 + moduleBitCount[bitCountIndex] as f32 <= sampleIndex
+        {
+            sumPreviousBits += moduleBitCount[bitCountIndex];
+            bitCountIndex += 1;
+        }
+        result[bitCountIndex] += 1;
+    }
+    result
+}
+
 pub fn sampleBitCounts(moduleBitCount: &[u32]) -> [u32; 8] {
     let bitCountSum: u32 = moduleBitCount.iter().sum(); //MathUtils.sum(moduleBitCount);
     let mut result = [0; pdf_417_common::BARS_IN_MODULE as usize];
@@ -75,7 +99,9 @@ fn getBitValue(moduleBitCount: &[u32]) -> i32 {
 
 #[cfg(test)]
 mod test {
-    use crate::pdf417::decoder::pdf_417_codeword_decoder::getDecodedValue;
+    use crate::pdf417::decoder::pdf_417_codeword_decoder::{
+        getDecodedValue, sampleBitCounts, sampleBitCountsExact,
+    };
 
     // Inputs that don't correspond to a valid sampleBitCounts pattern return u32::MAX (erasure sentinel).
     #[test]
@@ -87,11 +113,36 @@ mod test {
     // Valid exact-decode inputs.
     #[test]
     fn test_exact_decode() {
-        // sampleBitCounts([1,1,1,1,1,1,1,1]) = [1,1,1,1,1,1,1,1] which is a known valid pattern
-        // Just verify a known-valid input round-trips through exact decode (not u32::MAX)
-        let sample = [1, 1, 1, 1, 1, 1, 1, 1]; // uniform — exact sampleBitCounts = [2,2,2,2,2,2,2,1]
+        let sample = [1, 1, 1, 1, 1, 1, 1, 1];
         let val = getDecodedValue(&sample);
-        // Either decodes exactly or is an erasure — just confirm it doesn't panic
         let _ = val;
+    }
+
+    // When all bars are equal width the sample points are evenly distributed — both
+    // functions should agree.
+    #[test]
+    fn test_exact_agrees_with_sample_on_uniform_input() {
+        let input = [4, 4, 4, 4, 4, 4, 4, 4]; // 32 pixels, 17 sample points evenly spread
+        assert_eq!(sampleBitCounts(&input), sampleBitCountsExact(&input));
+    }
+
+    // Both functions sum to 17 (the number of sample points).
+    #[test]
+    fn test_exact_sums_to_17() {
+        let input = [3, 1, 6, 2, 4, 1, 5, 3];
+        let result = sampleBitCountsExact(&input);
+        assert_eq!(result.iter().sum::<u32>(), 17);
+    }
+
+    // Bar 4 is 1 pixel wide out of 32 total (≈1.88px per module), so it is sub-module.
+    // sampleBitCountsExact leaves it as 0; sampleBitCounts rescues it to 1 by not
+    // advancing past it when the sample point is already past its right edge.
+    #[test]
+    fn test_exact_allows_zero_for_narrow_bar() {
+        let input = [3, 7, 5, 3, 1, 4, 3, 6]; // bar[4] = 1px, total = 32
+        let exact = sampleBitCountsExact(&input);
+        let rescued = sampleBitCounts(&input);
+        assert_eq!(exact,   [2, 3, 3, 2, 0, 2, 2, 3]);
+        assert_eq!(rescued, [2, 3, 3, 2, 1, 1, 2, 3]);
     }
 }
