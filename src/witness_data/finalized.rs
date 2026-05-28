@@ -138,7 +138,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub wb_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
     #[allow(dead_code)]
-    // #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "serde", serde(skip))]
     wb_words: Vec<Vec<u64>>, // only used for testing
 
     // coefficients of polynomials showing that the stuff we throw out from the well-behaved image is disjoint from valid words
@@ -152,7 +152,7 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub garbage_normalized_blocks: Vec<Vec<[u32; 8]>>,
 
     #[allow(dead_code)]
-    // #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "serde", serde(skip))]
     garbage_rows: Vec<Vec<u64>>, // Full 2D word grid for the garbage image; used by the circuit via compute_words. Only exported here for testing.
 
     /// For each garbage row, the bar-space pattern of the first column that failed to decode.
@@ -381,21 +381,7 @@ impl FinalizedWitnessData<Fr> {
 
     pub fn from_witness_data(witness_data: &WitnessData) -> Result<Self, String> {
         let params = &witness_data.image_params;
-        let bin_image = {
-            let full = Option::ok_or(witness_data.bin_image.clone(), "no binarized image data")?;
-            let bw = params.barcode_width as u32;
-            let bh = params.barcode_height as u32;
-            let mut cropped = crate::common::BitMatrix::new(bw, bh)
-                .map_err(|e| format!("failed to allocate cropped bin_image: {e}"))?;
-            for row in 0..bh {
-                for col in 0..bw {
-                    if full.get(params.c_start as u32 + col, params.r_start as u32 + row) {
-                        cropped.set(col, row);
-                    }
-                }
-            }
-            cropped
-        };
+        let bin_image = Option::ok_or(witness_data.bin_image.clone(), "no binarized image data")?;
 
         let well_behaved = Option::ok_or(witness_data.wb_image.clone(), "no wb_image data")?;
         let wb_inds = Option::ok_or(witness_data.wb_inds.clone(), "no wb_inds data")?;

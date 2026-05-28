@@ -48,6 +48,8 @@ pub fn decode(
     imageBottomLeft: Option<Point>,
     image_top_right: Option<Point>,
     imageBottomRight: Option<Point>,
+    barcode_top_left: Option<Point>,
+    barcode_top_right: Option<Point>,
     minCodewordWidth: u32,
     maxCodewordWidth: u32,
     mut witness_data: Option<&mut WitnessData>,
@@ -195,8 +197,19 @@ pub fn decode(
         let min_y = boundingBox.getMinY();
         let max_y = boundingBox.getMaxY();
         let barcode_col_count = detectionRXingResult.getBarcodeColumnCount();
-        let image_width = image.getWidth();
+        // Use outer barcode corners (including start/stop patterns) for x-crop,
+        // falling back to the codeword-area bounding box if not available.
+        let min_x = barcode_top_left
+            .map(|p| p.x as u32)
+            .unwrap_or_else(|| boundingBox.getMinX());
+        let max_x = barcode_top_right
+            .map(|p| p.x as u32)
+            .unwrap_or_else(|| boundingBox.getMaxX());
+        let image_width = max_x - min_x; // max_x is exclusive (one past last pixel of stop pattern)
         let num_rows = (max_y - min_y + 1) as usize;
+        if let Some(wd) = witness_data.as_deref_mut() {
+            wd.set_barcode_bbox(min_x, max_x, min_y, max_y);
+        }
 
         // Determine which bounding-box rows are well-behaved
         let mut is_good = vec![false; num_rows];
@@ -237,10 +250,15 @@ pub fn decode(
             .map(|i| (min_y + i as u32) as i32)
             .collect();
 
-        // wb_image: only bounding-box rows, sourced from wb_inds
+        // wb_image: only bounding-box rows and columns, sourced from wb_inds
         let mut wb_bm = BitMatrix::new(image_width, num_rows as u32).unwrap();
         for (dest_row, &src_row) in wb_inds.iter().enumerate() {
-            wb_bm.setRow(dest_row as u32, &image.getRow(src_row));
+            let full_row = image.getRow(src_row);
+            for x in min_x..max_x {
+                if full_row.get(x as usize) {
+                    wb_bm.set(x - min_x, dest_row as u32);
+                }
+            }
         }
 
         // garbage_image: exactly garbage_rows rows. Non-good bounding-box rows only,
@@ -257,12 +275,31 @@ pub fn decode(
         );
         let mut garbage_bm = BitMatrix::new(image_width, garbage_rows as u32).unwrap();
         for (dest_row, &src_row) in garbage_inds.iter().enumerate() {
-            garbage_bm.setRow(dest_row as u32, &image.getRow(src_row as u32));
+            let full_row = image.getRow(src_row as u32);
+            for x in min_x..max_x {
+                if full_row.get(x as usize) {
+                    garbage_bm.set(x - min_x, dest_row as u32);
+                }
+            }
         }
         // Pad garbage_inds with -1s to reach exactly garbage_rows
         garbage_inds.resize(garbage_rows, -1);
 
         if let Some(wd) = witness_data.as_deref_mut() {
+            // Crop bin_image to the bounding box so it matches wb_image/garbage_image dimensions.
+            if let Some(bin) = wd.bin_image.take() {
+                let bb_height = (max_y - min_y + 1) as u32;
+                let mut cropped = BitMatrix::new(image_width, bb_height).unwrap();
+                for y in min_y..=max_y {
+                    let full_row = bin.getRow(y);
+                    for x in min_x..max_x {
+                        if full_row.get(x as usize) {
+                            cropped.set(x - min_x, y - min_y);
+                        }
+                    }
+                }
+                wd.bin_image = Some(cropped);
+            }
             wd.wb_image = Some(wb_bm);
             wd.wb_inds = Some(wb_inds);
             wd.garbage_image = Some(garbage_bm);

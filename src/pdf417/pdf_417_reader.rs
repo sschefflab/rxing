@@ -116,6 +116,8 @@ impl PDF417Reader {
                 points[5],
                 points[6],
                 points[7],
+                points[0], // barcode top-left (includes start pattern)
+                points[2], // barcode top-right (includes stop pattern)
                 Self::getMinCodewordWidth(points),
                 Self::getMaxCodewordWidth(points),
                 witness_data.take(),

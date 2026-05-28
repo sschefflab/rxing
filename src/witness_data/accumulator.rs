@@ -64,6 +64,9 @@ pub struct WitnessData {
 
     /// The final decoded text of the barcode, represented as ASCII integer values.
     pub chars: Option<Vec<u8>>,
+
+    /// Bounding box of the detected barcode in the full image: (min_x, max_x, min_y, max_y).
+    pub barcode_bbox: Option<(u32, u32, u32, u32)>,
 }
 
 impl WitnessData {
@@ -120,6 +123,7 @@ impl WitnessData {
             polynomial_results: None,
             char_table_states: None,
             chars: None,
+            barcode_bbox: None,
         }
     }
 
@@ -153,6 +157,10 @@ impl WitnessData {
 
     pub fn set_bin_image(&mut self, bin_image: BitMatrix) {
         self.bin_image = Some(bin_image)
+    }
+
+    pub fn set_barcode_bbox(&mut self, min_x: u32, max_x: u32, min_y: u32, max_y: u32) {
+        self.barcode_bbox = Some((min_x, max_x, min_y, max_y));
     }
 
     pub fn set_barcode_stats(&mut self, row_count: u8, column_count: u8, ec_level: u8) {
