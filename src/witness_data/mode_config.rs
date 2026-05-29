@@ -302,6 +302,41 @@ impl ImageParams {
         out.push_str(&g_words_range.join(", "));
         out.push_str("];\n\n");
 
+        // BarcodeRanges tables (sizes match BarcodeRanges<R_W, EC, EC_CW> field types)
+        let ec = self.max_ec_level;
+        let ec_cw = self.max_ec_codewords();
+        let max_rows = self.max_rows;
+
+        // ec_level_range: field[EC+1], values [0..=EC]
+        out.push_str("const field[EC+1] RANGE_EC_LEVEL = [");
+        let ec_level_range: Vec<String> = (0..=ec).map(|i| i.to_string()).collect();
+        out.push_str(&ec_level_range.join(", "));
+        out.push_str("];\n\n");
+
+        // num_rows_range: field[R_W-2], values [3..=R_W]
+        out.push_str("const field[R_W-2] RANGE_NUM_ROWS = [");
+        let num_rows_range: Vec<String> = (3..=max_rows).map(|i| i.to_string()).collect();
+        out.push_str(&num_rows_range.join(", "));
+        out.push_str("];\n\n");
+
+        // ec_cw_range: field[EC_W], values [1..=EC_W]
+        out.push_str("const field[EC_W] EC_CW_RANGE = [");
+        let ec_cw_range: Vec<String> = (1..=ec_cw).map(|i| i.to_string()).collect();
+        out.push_str(&ec_cw_range.join(", "));
+        out.push_str("];\n\n");
+
+        // powers_of_two: field[EC+2][2], [[0,0],[1,2],[2,4],...,[EC+1, 2^(EC+1)]]
+        out.push_str("const field[EC+2][2] POWERS_OF_TWO = [\n");
+        for i in 0..=(ec + 1) {
+            let val: u64 = if i == 0 { 0 } else { 1u64 << i };
+            out.push_str(&format!("    [{}, {}]", i, val));
+            if i < ec + 1 {
+                out.push(',');
+            }
+            out.push('\n');
+        }
+        out.push_str("];\n\n");
+
         out.push_str("def main() {\n    assert(true);\n}\n");
 
         out
