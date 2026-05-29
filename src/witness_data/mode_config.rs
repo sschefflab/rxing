@@ -62,9 +62,10 @@ impl ImageParams {
         self.chunk_size
     }
 
-    /// ceil(log2(garbage_m)).
+    /// ceil(log2(garbage_m + 1)).
+    /// +1 because all_nb can reach garbage_m after process_chunks adds 1 for the last chunk.
     pub fn garbage_logm(&self) -> usize {
-        ceil_log2(self.garbage_m())
+        ceil_log2(self.garbage_m() + 1)
     }
 
     /// Number of garbage column words = ceil(barcode_width / 8).
@@ -100,9 +101,11 @@ impl ImageParams {
         self.wb_m()
     }
 
-    /// ceil(log2(wb_m)).
+    /// ceil(log2(wb_m + 1)).
+    /// +1 because all_nb can reach wb_m (= M) after process_chunks adds 1 for the last chunk,
+    /// so we need enough bits to represent M, not just M-1.
     pub fn wb_logm(&self) -> usize {
-        ceil_log2(self.wb_m())
+        ceil_log2(self.wb_m() + 1)
     }
 
     /// Number of well-behaved column words = ceil(wb_nb / 8).

@@ -226,7 +226,9 @@ pub fn decode(
             }
         }
 
-        // Forward pass: map each row to itself if good, or to the last good row above
+        // Forward pass: map each row to itself if good, or to the last good row above.
+        // Track absolute image rows internally; convert to 0-based (relative to min_y)
+        // before storing, since the circuit indexes into the cropped bin_image.
         let mut wb_inds_opt: Vec<Option<u32>> = Vec::with_capacity(num_rows);
         let mut last_good: Option<u32> = None;
         for i in 0..num_rows {
@@ -237,69 +239,80 @@ pub fn decode(
             wb_inds_opt.push(last_good);
         }
 
-        // For leading garbage rows (no good row above), use the first good row below
+        // For leading garbage rows (no good row above), use the first good row below.
+        // wb_inds_abs: absolute image rows (used to build wb_bm from the full image).
+        // wb_inds: 0-based relative to min_y (what the circuit expects).
         let first_good = wb_inds_opt.iter().find_map(|&x| x);
-        let wb_inds: Vec<u32> = wb_inds_opt
+        let wb_inds_abs: Vec<u32> = wb_inds_opt
             .iter()
             .enumerate()
             .map(|(i, &opt)| opt.or(first_good).unwrap_or(min_y + i as u32))
             .collect();
+        let wb_inds: Vec<u32> = wb_inds_abs.iter().map(|&r| r - min_y).collect();
 
-        let mut garbage_inds: Vec<i32> = (0..num_rows)
+        // garbage_inds: 0-based relative to min_y (what the circuit expects).
+        let garbage_inds_rel: Vec<i32> = (0..num_rows)
             .filter(|&i| !is_good[i])
-            .map(|i| (min_y + i as u32) as i32)
+            .map(|i| i as i32)
             .collect();
 
-        // wb_image: only bounding-box rows and columns, sourced from wb_inds
-        let mut wb_bm = BitMatrix::new(image_width, num_rows as u32).unwrap();
-        for (dest_row, &src_row) in wb_inds.iter().enumerate() {
-            let full_row = image.getRow(src_row);
-            for x in min_x..max_x {
-                if full_row.get(x as usize) {
-                    wb_bm.set(x - min_x, dest_row as u32);
-                }
-            }
-        }
-
-        // garbage_image: exactly garbage_rows rows. Non-good bounding-box rows only,
-        // remainder padded with zero rows. garbage_inds uses -1 for padded rows.
         let garbage_rows = witness_data
             .as_deref()
             .map_or(89usize, |wd| wd.image_params.garbage_rows());
 
         assert!(
-            garbage_inds.len() <= garbage_rows,
+            garbage_inds_rel.len() <= garbage_rows,
             "Too many garbage rows: {} (max {})",
-            garbage_inds.len(),
+            garbage_inds_rel.len(),
             garbage_rows
         );
-        let mut garbage_bm = BitMatrix::new(image_width, garbage_rows as u32).unwrap();
-        for (dest_row, &src_row) in garbage_inds.iter().enumerate() {
-            let full_row = image.getRow(src_row as u32);
-            for x in min_x..max_x {
-                if full_row.get(x as usize) {
-                    garbage_bm.set(x - min_x, dest_row as u32);
-                }
-            }
-        }
+
         // Pad garbage_inds with -1s to reach exactly garbage_rows
+        let mut garbage_inds = garbage_inds_rel.clone();
         garbage_inds.resize(garbage_rows, -1);
 
         if let Some(wd) = witness_data.as_deref_mut() {
-            // Crop bin_image to the bounding box so it matches wb_image/garbage_image dimensions.
-            if let Some(bin) = wd.bin_image.take() {
+            // Crop bin_image to the bounding box first — wb_image and garbage_image
+            // are then built from the same cropped source so all three are pixel-consistent.
+            let cropped = if let Some(bin) = wd.bin_image.take() {
                 let bb_height = (max_y - min_y + 1) as u32;
-                let mut cropped = BitMatrix::new(image_width, bb_height).unwrap();
+                let mut c = BitMatrix::new(image_width, bb_height).unwrap();
                 for y in min_y..=max_y {
                     let full_row = bin.getRow(y);
                     for x in min_x..max_x {
                         if full_row.get(x as usize) {
-                            cropped.set(x - min_x, y - min_y);
+                            c.set(x - min_x, y - min_y);
                         }
                     }
                 }
-                wd.bin_image = Some(cropped);
+                c
+            } else {
+                BitMatrix::new(image_width, (max_y - min_y + 1) as u32).unwrap()
+            };
+
+            // wb_image: pull each dest row from the cropped bin_image at the relative src index.
+            let mut wb_bm = BitMatrix::new(image_width, num_rows as u32).unwrap();
+            for (dest_row, &rel_src) in wb_inds.iter().enumerate() {
+                let src_row = cropped.getRow(rel_src);
+                for x in 0..image_width {
+                    if src_row.get(x as usize) {
+                        wb_bm.set(x as u32, dest_row as u32);
+                    }
+                }
             }
+
+            // garbage_image: pull each dest row from the cropped bin_image at the relative index.
+            let mut garbage_bm = BitMatrix::new(image_width, garbage_rows as u32).unwrap();
+            for (dest_row, &rel_src) in garbage_inds_rel.iter().enumerate() {
+                let src_row = cropped.getRow(rel_src as u32);
+                for x in 0..image_width {
+                    if src_row.get(x as usize) {
+                        garbage_bm.set(x as u32, dest_row as u32);
+                    }
+                }
+            }
+
+            wd.bin_image = Some(cropped);
             wd.wb_image = Some(wb_bm);
             wd.wb_inds = Some(wb_inds);
             wd.garbage_image = Some(garbage_bm);
