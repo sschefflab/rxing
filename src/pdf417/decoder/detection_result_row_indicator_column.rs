@@ -158,9 +158,14 @@ impl DetectionRXingResultRowIndicatorColumn for DetectionRXingResultColumn {
         let mut barcodeRowCountLowerPart = BarcodeValue::new();
         let mut barcodeECLevel = BarcodeValue::new();
 
-        // Keeps track of all left row indicator values to store (consecutive duplicates suppressed,
-        // matching the circuit's words_with_dummies deduplication logic)
+        // Keeps track of all left row indicator values to store (one per logical row).
+        // Deduplicate by logical row number, not by codeword value: two different logical rows
+        // can share the same LEFT_RI codeword value (e.g. cluster-0 and cluster-1 coincide when
+        // (num_rows-1)/3 == ec_level*3), so deduplicating by value would incorrectly drop rows.
+        // The circuit deduplicates by full pixel-row word pattern, so each logical row contributes
+        // exactly one entry regardless of codeword value.
         let mut all_indicators: Vec<u32> = Vec::new();
+        let mut last_indicator_row: Option<i32> = None;
 
         // Track row indicator values for witness data (only for left indicators)
         // These track the first 3 rows
@@ -186,8 +191,9 @@ impl DetectionRXingResultRowIndicatorColumn for DetectionRXingResultColumn {
             let mut codewordRowNumber = codeword.getRowNumber();
             if !isLeft {
                 codewordRowNumber += 2;
-            } else if all_indicators.last() != Some(&fullValue) {
+            } else if last_indicator_row != Some(codewordRowNumber) {
                 all_indicators.push(fullValue);
+                last_indicator_row = Some(codewordRowNumber);
             }
             match codewordRowNumber % 3 {
                 0 => {
