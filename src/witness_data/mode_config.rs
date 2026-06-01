@@ -473,8 +473,8 @@ mod tests {
         let p = ImageMode::Hd.image_params();
         assert_eq!(p.wb_b(), 105);
         assert_eq!(p.wb_nb(), 273);
-        assert_eq!(p.wb_m(), 3);
-        assert_eq!(p.wb_logm(), 2);
+        assert_eq!(p.wb_m(), 6);
+        assert_eq!(p.wb_logm(), 3);
         assert_eq!(p.wb_col_words(), 35);
         assert_eq!(p.garbage_b(), 1081);
         assert_eq!(p.garbage_nb(), 1080);
@@ -493,7 +493,7 @@ mod tests {
         let p = ImageMode::Sd.image_params();
         assert_eq!(p.wb_b(), 65);
         assert_eq!(p.wb_nb(), 273);
-        assert_eq!(p.wb_m(), 5);
+        assert_eq!(p.wb_m(), 10);
         assert_eq!(p.wb_col_words(), 35);
         assert_eq!(p.garbage_b(), 641);
         assert_eq!(p.garbage_nb(), 640);
