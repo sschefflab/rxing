@@ -89,10 +89,12 @@ impl ImageParams {
         8 * self.max_cols + 24 + 9
     }
 
-    /// Max blocks per well-behaved chunk = min(ceil(L / (barcode_width / wb_nb)), L).
+    /// Max blocks per well-behaved chunk = min(ceil(L / (barcode_width / num_modules)), L),
+    /// where num_modules = 17 * (max_cols + 4) + 1 (minimum bar width = 1 module).
     pub fn wb_m(&self) -> usize {
-        let pixels_per_module = self.barcode_width as f64 / self.wb_nb() as f64;
-        let raw = (self.chunk_size as f64 / pixels_per_module).ceil() as usize;
+        let num_modules = 17 * (self.max_cols + 4) + 1;
+        let min_pixels_per_block = self.barcode_width as f64 / num_modules as f64;
+        let raw = (self.chunk_size as f64 / min_pixels_per_block).ceil() as usize;
         raw.min(self.chunk_size)
     }
 
