@@ -105,6 +105,9 @@ pub struct FinalizedWitnessData<F: FftField + PrimeField> {
     pub wb_inds: Vec<u32>,
     // How many times index i appears in wb_inds. Should be the same length as wb_inds.
     pub ind_counts: Vec<u32>,
+    // Logical PDF417 row number for each wb_image row from the left row indicator.
+    // -1 if the row is a fill (not well-behaved) or the left indicator fails to decode.
+    pub ext_row_num: Vec<i32>,
 
     // data that should be in the lookup table we use in the proof for the well-behaved image
     pub wb_lookups: Vec<Vec<BlockLookup>>,
@@ -215,6 +218,7 @@ impl FinalizedWitnessData<Fr> {
         bin_image: BitMatrix,
         well_behaved: BitMatrix,
         wb_inds: Vec<u32>,
+        ext_row_num: Vec<i32>,
         garbage_image: BitMatrix,
         garbage_inds: Vec<i32>,
         stats: BarcodeStats,
@@ -347,6 +351,7 @@ impl FinalizedWitnessData<Fr> {
             well_behaved,
             wb_inds,
             ind_counts,
+            ext_row_num,
             wb_lookups,
             wb_baseB_decomps,
             garbage_image,
@@ -385,6 +390,8 @@ impl FinalizedWitnessData<Fr> {
 
         let well_behaved = Option::ok_or(witness_data.wb_image.clone(), "no wb_image data")?;
         let wb_inds = Option::ok_or(witness_data.wb_inds.clone(), "no wb_inds data")?;
+        let ext_row_num =
+            Option::ok_or(witness_data.ext_row_num.clone(), "no ext_row_num data")?;
         let garbage_image =
             Option::ok_or(witness_data.garbage_image.clone(), "no garbage_image data")?;
         let garbage_inds =
@@ -442,6 +449,7 @@ impl FinalizedWitnessData<Fr> {
             bin_image,
             well_behaved,
             wb_inds,
+            ext_row_num,
             garbage_image,
             garbage_inds,
             stats,

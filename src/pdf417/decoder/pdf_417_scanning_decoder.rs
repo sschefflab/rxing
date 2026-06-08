@@ -312,9 +312,32 @@ pub fn decode(
                 }
             }
 
+            // ext_row_num: logical row number for each wb row from the left indicator,
+            // or -1 if the row is a fill, the left indicator fails to decode, or this
+            // logical row number has already appeared (i.e. this is a repeated image row).
+            let mut seen_logical_rows = std::collections::HashSet::new();
+            let ext_row_num: Vec<i32> = (0..num_rows)
+                .map(|i| {
+                    if !is_good[i] {
+                        return -1;
+                    }
+                    let row_num = detectionRXingResult
+                        .getDetectionRXingResultColumn(0)
+                        .as_ref()
+                        .and_then(|col| col.getCodewords()[i].as_ref())
+                        .map_or(-1, |cw| cw.getRowNumber());
+                    if row_num == -1 || !seen_logical_rows.insert(row_num) {
+                        -1
+                    } else {
+                        row_num
+                    }
+                })
+                .collect();
+
             wd.bin_image = Some(cropped);
             wd.wb_image = Some(wb_bm);
             wd.wb_inds = Some(wb_inds);
+            wd.ext_row_num = Some(ext_row_num);
             wd.garbage_image = Some(garbage_bm);
             wd.garbage_inds = Some(garbage_inds);
         }

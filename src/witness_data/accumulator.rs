@@ -39,6 +39,9 @@ pub struct WitnessData {
 
     pub wb_image: Option<BitMatrix>,
     pub wb_inds: Option<Vec<u32>>,
+    /// Logical row number for each wb_image row from the left row indicator.
+    /// -1 if the row is a fill (not well-behaved) or the left indicator fails to decode.
+    pub ext_row_num: Option<Vec<i32>>,
     pub garbage_image: Option<BitMatrix>,
     pub garbage_inds: Option<Vec<i32>>,
 
@@ -113,6 +116,7 @@ impl WitnessData {
             bin_image: None,
             wb_image: None,
             wb_inds: None,
+            ext_row_num: None,
             garbage_image: None,
             garbage_inds: None,
             stats: None,
@@ -300,6 +304,7 @@ mod tests {
         witness.set_bin_image(BitMatrix::new(2, 2).unwrap());
         witness.wb_image = Some(BitMatrix::new(2, 2).unwrap());
         witness.wb_inds = Some(vec![0, 1]);
+        witness.ext_row_num = Some(vec![-1, -1]);
         witness.garbage_image = Some(BitMatrix::new(2, garbage_rows as u32).unwrap());
         witness.garbage_inds = Some(vec![-1; garbage_rows]);
         witness.set_barcode_stats(30, 10, 2);
